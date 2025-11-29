@@ -1,0 +1,579 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import Layout from '../components/Layout';
+import { QRCodeSVG } from 'qrcode.react';
+
+const Settings = () => {
+    const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || '{}')); // Fallback if we stored user, but we usually fetch it.
+    // Actually, Layout fetches user. We might need to fetch it here or pass it down.
+    // For simplicity, let's fetch it again or rely on Layout's user if we lift state.
+    // Let's fetch it to be safe and independent.
+    const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('profile');
+
+    // MFA State
+    const [mfaSecret, setMfaSecret] = useState('');
+    const [mfaUri, setMfaUri] = useState('');
+    const [mfaCode, setMfaCode] = useState('');
+
+    // Fetch user
+    const [currentUser, setCurrentUser] = useState(null);
+
+    const [formData, setFormData] = useState({
+        username: '',
+        password: '',
+        confirmPassword: ''
+    });
+
+    const [passwordData, setPasswordData] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmNewPassword: ''
+    });
+
+    const [newUser, setNewUser] = useState({
+        username: '',
+        password: '',
+        role: 'member',
+        team_id: ''
+    });
+
+    const [users, setUsers] = useState([]);
+    const [teams, setTeams] = useState([]);
+    const [editingUser, setEditingUser] = useState(null);
+    const [deletingUser, setDeletingUser] = useState(null);
+
+    useEffect(() => {
+        const fetchUser = async () => {
+            const token = localStorage.getItem('token');
+            try {
+                const res = await axios.get('http://127.0.0.1:8000/users/me', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                setCurrentUser(res.data);
+                setLoading(false);
+            } catch (err) {
+                console.error(err);
+            }
+        };
+        fetchUser();
+    }, []);
+
+    const handleSetupMFA = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            const res = await axios.post('http://127.0.0.1:8000/auth/mfa/setup', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setMfaSecret(res.data.secret);
+            setMfaUri(res.data.uri);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to setup MFA');
+        }
+    };
+
+    const handleEnableMFA = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            await axios.post('http://127.0.0.1:8000/auth/mfa/enable',
+                new URLSearchParams({ secret: mfaSecret, code: mfaCode }),
+                { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
+            alert('MFA Enabled successfully!');
+            setMfaSecret('');
+            setMfaCode('');
+            // Refresh user to update UI if we had an 'mfa_enabled' flag (we check mfa_secret in backend but don't send it to frontend usually for security, but we can infer or add a flag)
+        } catch (err) {
+            console.error(err);
+            alert('Invalid Code');
+        }
+    };
+
+    if (loading) return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
+
+    useEffect(() => {
+        if (currentUser) {
+            setFormData({
+                username: currentUser.username,
+                password: '',
+                confirmPassword: ''
+            });
+            if (currentUser.role === 'group_head') {
+                fetchUsersAndTeams();
+            }
+        }
+    }, [currentUser]);
+
+    const fetchUsersAndTeams = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            const [usersRes, teamsRes] = await Promise.all([
+                axios.get('http://127.0.0.1:8000/users/', { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get('http://127.0.0.1:8000/teams/', { headers: { Authorization: `Bearer ${token}` } })
+            ]);
+            setUsers(usersRes.data);
+            setTeams(teamsRes.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleProfileUpdate = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            await axios.put(`http://127.0.0.1:8000/users/${currentUser.id}`,
+                { username: formData.username },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('Profile updated successfully');
+            // Refresh user
+            window.location.reload();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to update profile');
+        }
+    };
+
+    const handlePasswordChange = async () => {
+        if (passwordData.newPassword !== passwordData.confirmNewPassword) {
+            alert("New passwords don't match");
+            return;
+        }
+        // Ideally verify current password first, but for now we just update
+        const token = localStorage.getItem('token');
+        try {
+            await axios.put(`http://127.0.0.1:8000/users/${currentUser.id}`,
+                { password: passwordData.newPassword },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('Password updated successfully');
+            setPasswordData({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
+        } catch (err) {
+            console.error(err);
+            alert('Failed to update password');
+        }
+    };
+
+    const handleCreateUser = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            await axios.post('http://127.0.0.1:8000/users/',
+                { ...newUser, team_id: newUser.team_id || null },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('User created successfully');
+            setNewUser({ username: '', password: '', role: 'member', team_id: '' });
+            fetchUsersAndTeams();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to create user: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    const handleEditUser = async () => {
+        if (!editingUser) return;
+        const token = localStorage.getItem('token');
+        try {
+            const updateData = {
+                username: editingUser.username,
+                role: editingUser.role,
+                team_id: editingUser.team_id || null
+            };
+            await axios.put(`http://127.0.0.1:8000/users/${editingUser.id}`,
+                updateData,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('User updated successfully');
+            setEditingUser(null);
+            fetchUsersAndTeams();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to update user: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    const handleDeleteUser = async () => {
+        if (!deletingUser) return;
+        const token = localStorage.getItem('token');
+        try {
+            await axios.delete(`http://127.0.0.1:8000/users/${deletingUser.id}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('User deleted successfully');
+            setDeletingUser(null);
+            fetchUsersAndTeams();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete user: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    const tabs = [
+        { id: 'profile', label: 'My details' },
+        { id: 'security', label: 'Password & Security' },
+        { id: 'notifications', label: 'Notifications' },
+        ...(currentUser?.role === 'group_head' ? [{ id: 'users', label: 'User Management' }] : [])
+    ];
+
+    return (
+        <Layout user={currentUser}>
+            {/* Header with gradient background */}
+            <div className="mb-8 -mx-8 -mt-8 px-8 pt-8 pb-6 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent mb-2">Settings</h1>
+                <p className="text-gray-600">Manage your account settings and preferences.</p>
+            </div>
+
+            {/* Tabs with enhanced styling */}
+            <div className="border-b border-gray-200 mb-8 bg-white rounded-t-xl -mx-8 px-8 shadow-sm">
+                <nav className="flex gap-8 overflow-x-auto">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`pb-4 pt-2 text-sm font-semibold transition-all relative whitespace-nowrap ${activeTab === tab.id
+                                ? 'text-orange-600'
+                                : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                        >
+                            {tab.label}
+                            {activeTab === tab.id && (
+                                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-amber-500 rounded-t-full shadow-lg"></div>
+                            )}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+
+            {/* Content Area */}
+            <div className="max-w-4xl">
+                {activeTab === 'profile' && (
+                    <div className="space-y-8">
+                        <section>
+                            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-6">
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-800">Personal Information</h3>
+                                    <p className="text-sm text-gray-500 mt-1">Update your personal details.</p>
+                                </div>
+                                <button className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-6 py-2.5 rounded-lg hover:shadow-lg hover:scale-105 transition-all font-medium" onClick={handleProfileUpdate}>
+                                    Save changes
+                                </button>
+                            </div>
+
+                            <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-lg hover:shadow-xl transition-shadow">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all bg-gray-50 hover:bg-white"
+                                            value={formData.username}
+                                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                                        <div className="px-4 py-3 border-2 border-gray-200 rounded-lg bg-gradient-to-r from-orange-50 to-amber-50 text-gray-700 capitalize font-medium">
+                                            {currentUser.role.replace('_', ' ')}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Team ID</label>
+                                        <div className="px-4 py-3 border-2 border-gray-200 rounded-lg bg-gradient-to-r from-blue-50 to-cyan-50 text-gray-600 font-medium">
+                                            {currentUser.team_id || 'Not assigned'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-surface border border-border rounded-xl p-6 shadow-sm space-y-4 max-w-lg">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text mb-1">New Password</label>
+                                        <input
+                                            type="password"
+                                            className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                            value={passwordData.newPassword}
+                                            onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-text mb-1">Confirm New Password</label>
+                                        <input
+                                            type="password"
+                                            className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                            value={passwordData.confirmNewPassword}
+                                            onChange={(e) => setPasswordData({ ...passwordData, confirmNewPassword: e.target.value })}
+                                        />
+                                    </div>
+                                    <button className="btn-primary w-full" onClick={handlePasswordChange}>Update Password</button>
+                                </div>
+                        </section>
+
+                        <section>
+                            <div className="mb-6">
+                                <h3 className="text-lg font-semibold text-text">Multi-Factor Authentication</h3>
+                                <p className="text-sm text-text-muted">Add an extra layer of security to your account.</p>
+                            </div>
+
+                            <div className="bg-surface border border-border rounded-xl p-6 shadow-sm">
+                                {!mfaSecret ? (
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="font-medium text-text">Two-step verification</h4>
+                                            <p className="text-sm text-text-muted mt-1">Secure your account with TOTP (Google Authenticator, Authy).</p>
+                                        </div>
+                                        <button className="btn-primary" onClick={handleSetupMFA}>Setup MFA</button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        <div className="flex items-start gap-4 p-4 bg-blue-50 text-blue-700 rounded-lg border border-blue-100">
+                                            <div className="flex-1">
+                                                <p className="font-medium">Finish setting up MFA</p>
+                                                <p className="text-sm mt-1 opacity-90">Scan the QR code with your authenticator app and enter the code below.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col md:flex-row gap-8 items-start">
+                                            <div className="bg-white p-4 rounded-lg border border-border shadow-sm">
+                                                <QRCodeSVG value={mfaUri} size={160} />
+                                            </div>
+                                            <div className="flex-1 space-y-4">
+                                                <div>
+                                                    <label className="block text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Secret Key</label>
+                                                    <code className="block bg-subsurface px-3 py-2 rounded border border-border text-sm font-mono break-all select-all">
+                                                        {mfaSecret}
+                                                    </code>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-text mb-1">Verification Code</label>
+                                                    <div className="flex gap-3">
+                                                        <input
+                                                            type="text"
+                                                            className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors w-32 text-center tracking-widest"
+                                                            value={mfaCode}
+                                                            onChange={(e) => setMfaCode(e.target.value)}
+                                                            placeholder="000000"
+                                                            maxLength={6}
+                                                        />
+                                                        <button className="btn-primary" onClick={handleEnableMFA}>Enable MFA</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+                )
+                }
+
+                {
+                    activeTab === 'users' && currentUser.role === 'group_head' && (
+                        <div className="space-y-8">
+                            <section>
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-text">Add New User</h3>
+                                    <p className="text-sm text-text-muted">Create a new user and assign them a role.</p>
+                                </div>
+                                <div className="bg-surface border border-border rounded-xl p-6 shadow-sm space-y-4 max-w-2xl">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-text mb-1">Username</label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                value={newUser.username}
+                                                onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text mb-1">Password</label>
+                                            <input
+                                                type="password"
+                                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                value={newUser.password}
+                                                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text mb-1">Role</label>
+                                            <select
+                                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-white"
+                                                value={newUser.role}
+                                                onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                                            >
+                                                <option value="member">Member</option>
+                                                <option value="unit_head">Unit Head</option>
+                                                <option value="group_head">Group Head</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text mb-1">Team (Optional)</label>
+                                            <select
+                                                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-white"
+                                                value={newUser.team_id}
+                                                onChange={(e) => setNewUser({ ...newUser, team_id: e.target.value })}
+                                            >
+                                                <option value="">No Team</option>
+                                                {teams.map(team => (
+                                                    <option key={team.id} value={team.id}>{team.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button className="btn-primary w-full md:w-auto" onClick={handleCreateUser}>Create User</button>
+                                </div>
+                            </section>
+
+                            <section>
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-text">Existing Users</h3>
+                                    <p className="text-sm text-text-muted">Manage existing users and their roles.</p>
+                                </div>
+                                <div className="bg-surface border border-border rounded-xl shadow-sm overflow-hidden">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-subsurface border-b border-border">
+                                                <th className="py-3 px-4 text-sm font-semibold text-text-muted">Username</th>
+                                                <th className="py-3 px-4 text-sm font-semibold text-text-muted">Role</th>
+                                                <th className="py-3 px-4 text-sm font-semibold text-text-muted">Team</th>
+                                                <th className="py-3 px-4 text-sm font-semibold text-text-muted">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border">
+                                            {users.map(u => (
+                                                <tr key={u.id}>
+                                                    <td className="py-3 px-4 text-sm text-text">{u.username}</td>
+                                                    <td className="py-3 px-4 text-sm text-text capitalize">{u.role.replace('_', ' ')}</td>
+                                                    <td className="py-3 px-4 text-sm text-text-muted">{teams.find(t => t.id === u.team_id)?.name || '-'}</td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => setEditingUser({ ...u })}
+                                                                className="px-3 py-1 text-xs font-medium text-primary border border-primary rounded hover:bg-primary hover:text-white transition-colors"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setDeletingUser(u)}
+                                                                className="px-3 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-600 hover:text-white transition-colors"
+                                                                disabled={u.id === currentUser.id}
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            {/* Edit User Modal */}
+                            {editingUser && (
+                                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                    <div className="bg-surface border border-border rounded-xl p-6 shadow-xl max-w-md w-full mx-4">
+                                        <h3 className="text-lg font-semibold text-text mb-4">Edit User</h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-text mb-1">Username</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                    value={editingUser.username}
+                                                    onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-text mb-1">Role</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-white"
+                                                    value={editingUser.role}
+                                                    onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                                                >
+                                                    <option value="member">Member</option>
+                                                    <option value="unit_head">Unit Head</option>
+                                                    <option value="group_head">Group Head</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-text mb-1">Team</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-white"
+                                                    value={editingUser.team_id || ''}
+                                                    onChange={(e) => setEditingUser({ ...editingUser, team_id: e.target.value })}
+                                                >
+                                                    <option value="">No Team</option>
+                                                    {teams.map(team => (
+                                                        <option key={team.id} value={team.id}>{team.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="flex gap-3 pt-4">
+                                                <button
+                                                    onClick={handleEditUser}
+                                                    className="flex-1 btn-primary"
+                                                >
+                                                    Save Changes
+                                                </button>
+                                                <button
+                                                    onClick={() => setEditingUser(null)}
+                                                    className="flex-1 px-4 py-2 border border-border rounded-md hover:bg-subsurface transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Delete Confirmation Modal */}
+                            {deletingUser && (
+                                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                    <div className="bg-surface border border-border rounded-xl p-6 shadow-xl max-w-md w-full mx-4">
+                                        <h3 className="text-lg font-semibold text-text mb-2">Delete User</h3>
+                                        <p className="text-text-muted mb-6">
+                                            Are you sure you want to delete user <strong>{deletingUser.username}</strong>? This action cannot be undone.
+                                        </p>
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={handleDeleteUser}
+                                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                                            >
+                                                Delete
+                                            </button>
+                                            <button
+                                                onClick={() => setDeletingUser(null)}
+                                                className="flex-1 px-4 py-2 border border-border rounded-md hover:bg-subsurface transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === 'notifications' && (
+                        <div className="bg-surface border border-border rounded-xl p-12 text-center">
+                            <div className="w-16 h-16 bg-subsurface rounded-full flex items-center justify-center mx-auto mb-4 text-text-muted">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-medium text-text">No notifications yet</h3>
+                            <p className="text-text-muted mt-2">We'll let you know when something important happens.</p>
+                        </div>
+                    )
+                }
+            </div >
+        </Layout >
+    );
+};
+
+export default Settings;
