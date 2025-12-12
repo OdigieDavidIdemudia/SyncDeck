@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import { API_BASE_URL } from '../config';
 
 const TaskDetail = () => {
     const { id } = useParams();
@@ -12,6 +13,9 @@ const TaskDetail = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
+        const abortController = new AbortController();
+        let isMounted = true;
+
         const token = localStorage.getItem('token');
         if (!token) {
             navigate('/');
@@ -20,32 +24,44 @@ const TaskDetail = () => {
 
         const fetchTask = async () => {
             try {
-                const userRes = await axios.get('http://127.0.0.1:8000/users/me', {
-                    headers: { Authorization: `Bearer ${token}` }
+                const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: abortController.signal
                 });
+                if (!isMounted) return;
                 setUser(userRes.data);
 
-                const res = await axios.get(`http://127.0.0.1:8000/tasks/${id}`, {
-                    headers: { Authorization: `Bearer ${token}` }
+                const res = await axios.get(`${API_BASE_URL}/tasks/${id}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: abortController.signal
                 });
+                if (!isMounted) return;
                 setTask(res.data);
             } catch (err) {
+                if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+                    return;
+                }
                 console.error(err);
             }
         };
         fetchTask();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
     }, [id, navigate]);
 
     const handleCommentSubmit = async (e) => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
-            await axios.post(`http://127.0.0.1:8000/tasks/${id}/comments/`, { content: comment }, {
+            await axios.post(`${API_BASE_URL}/tasks/${id}/comments/`, { content: comment }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setComment('');
             // Refresh task to see new comment
-            const res = await axios.get(`http://127.0.0.1:8000/tasks/${id}`, {
+            const res = await axios.get(`${API_BASE_URL}/tasks/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTask(res.data);
@@ -57,10 +73,10 @@ const TaskDetail = () => {
     const handleStatusUpdate = async (newStatus) => {
         const token = localStorage.getItem('token');
         try {
-            await axios.put(`http://127.0.0.1:8000/tasks/${id}`, { status: newStatus }, {
+            await axios.put(`${API_BASE_URL}/tasks/${id}`, { status: newStatus }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            const res = await axios.get(`http://127.0.0.1:8000/tasks/${id}`, {
+            const res = await axios.get(`${API_BASE_URL}/tasks/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTask(res.data);

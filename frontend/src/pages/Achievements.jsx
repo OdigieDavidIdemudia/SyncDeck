@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { Download, FileText } from 'lucide-react';
 import Layout from '../components/Layout';
+import { API_BASE_URL } from '../config';
 
 const Achievements = () => {
     const [achievements, setAchievements] = useState([]);
@@ -21,7 +22,7 @@ const Achievements = () => {
 
         const fetchData = async () => {
             try {
-                const userRes = await axios.get('http://127.0.0.1:8000/users/me', {
+                const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 setUser(userRes.data);
@@ -38,7 +39,7 @@ const Achievements = () => {
     const fetchAchievements = async (userId, selectedPeriod, start, end) => {
         const token = localStorage.getItem('token');
         try {
-            let url = `http://127.0.0.1:8000/achievements/${userId}?period=${selectedPeriod}`;
+            let url = `${API_BASE_URL}/achievements/${userId}?period=${selectedPeriod}`;
             if (selectedPeriod === 'custom' && start && end) {
                 url += `&start_date=${start}&end_date=${end}`;
             }
@@ -63,7 +64,7 @@ const Achievements = () => {
     const handleExport = async (format) => {
         const token = localStorage.getItem('token');
         try {
-            let url = `http://127.0.0.1:8000/achievements/${user.id}/export?format=${format}&period=${period}`;
+            let url = `${API_BASE_URL}/achievements/${user.id}/export?format=${format}&period=${period}`;
             if (period === 'custom' && startDate && endDate) {
                 url += `&start_date=${startDate}&end_date=${endDate}`;
             }
@@ -165,6 +166,7 @@ const Achievements = () => {
                         <thead>
                             <tr className="bg-subsurface border-b border-border">
                                 <th className="py-4 px-6 text-sm font-semibold text-text-muted uppercase tracking-wider">Task</th>
+                                <th className="py-4 px-6 text-sm font-semibold text-text-muted uppercase tracking-wider">Summary</th>
                                 <th className="py-4 px-6 text-sm font-semibold text-text-muted uppercase tracking-wider">Criticality</th>
                                 <th className="py-4 px-6 text-sm font-semibold text-text-muted uppercase tracking-wider">Completed At</th>
                                 <th className="py-4 px-6 text-sm font-semibold text-text-muted uppercase tracking-wider">Assigner</th>
@@ -173,7 +175,7 @@ const Achievements = () => {
                         <tbody className="divide-y divide-border">
                             {achievements.length === 0 ? (
                                 <tr>
-                                    <td colSpan="4" className="py-8 text-center text-text-muted">No completed tasks found for this period.</td>
+                                    <td colSpan="5" className="py-8 text-center text-text-muted">No completed tasks found for this period.</td>
                                 </tr>
                             ) : (
                                 achievements.map(task => (
@@ -182,13 +184,37 @@ const Achievements = () => {
                                             <div className="font-medium text-text">{task.title}</div>
                                             <div className="text-xs text-text-muted truncate max-w-xs">{task.description}</div>
                                         </td>
+                                        <td className="py-4 px-6 text-sm text-text-muted">
+                                            <div className="max-w-xs truncate" title={task.updates && task.updates.length > 0 ? task.updates[task.updates.length - 1].summary_text : 'No summary'}>
+                                                {task.updates && task.updates.length > 0
+                                                    ? task.updates[task.updates.length - 1].summary_text || 'No summary provided'
+                                                    : 'No updates yet'}
+                                            </div>
+                                        </td>
                                         <td className="py-4 px-6">
                                             <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${getCriticalityColor(task.criticality)}`}>
                                                 {task.criticality ? task.criticality.toUpperCase() : 'MEDIUM'}
                                             </span>
                                         </td>
-                                        <td className="py-4 px-6 text-sm text-text-muted">
-                                            {new Date(task.completed_at).toLocaleString()}
+                                        <td className="py-4 px-6 text-sm">
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-text-muted">{new Date(task.completed_at).toLocaleString()}</span>
+                                                {(() => {
+                                                    if (!task.deadline) return null;
+                                                    const deadline = new Date(task.deadline);
+                                                    const completedAt = new Date(task.completed_at);
+                                                    const isOverdue = completedAt > deadline;
+
+                                                    return (
+                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border w-fit ${isOverdue
+                                                            ? 'bg-red-50 text-red-600 border-red-200'
+                                                            : 'bg-green-50 text-green-600 border-green-200'
+                                                            }`}>
+                                                            {isOverdue ? 'Overdue' : 'On Time'}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </div>
                                         </td>
                                         <td className="py-4 px-6 text-sm text-text">
                                             {task.assigner ? task.assigner.username : 'N/A'}

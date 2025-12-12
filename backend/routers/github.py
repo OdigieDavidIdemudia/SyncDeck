@@ -11,8 +11,8 @@ router = APIRouter(
 )
 
 # These should be in environment variables
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "your_client_id")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "your_client_secret")
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
 @router.get("/login")
 def github_login():

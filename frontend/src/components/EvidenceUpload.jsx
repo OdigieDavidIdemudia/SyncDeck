@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { Upload, FileText, Check, X, ExternalLink } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
     const [file, setFile] = useState(null);
@@ -26,7 +27,7 @@ const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
         try {
             const token = localStorage.getItem('token');
             const response = await axios.post(
-                `http://127.0.0.1:8000/tasks/${taskId}/evidence`,
+                `${API_BASE_URL}/tasks/${taskId}/evidence`,
                 formData,
                 {
                     headers: {
@@ -53,24 +54,36 @@ const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
             <h3 className="text-lg font-semibold text-text">Evidence</h3>
 
             {currentEvidenceUrl && (
-                <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
-                    <div className="bg-green-100 p-2 rounded-full">
-                        <FileText size={20} className="text-green-600" />
+                <div className="flex flex-col gap-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-green-100 p-2 rounded-full">
+                            <FileText size={20} className="text-green-600" />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <p className="text-sm font-medium text-green-800 truncate">Evidence Uploaded</p>
+                            <a
+                                href={`${API_BASE_URL}${currentEvidenceUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-green-600 hover:underline flex items-center gap-1"
+                            >
+                                Open File <ExternalLink size={10} />
+                            </a>
+                        </div>
+                        <div className="bg-green-200 p-1 rounded-full">
+                            <Check size={14} className="text-green-700" />
+                        </div>
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-medium text-green-800 truncate">Evidence Uploaded</p>
-                        <a
-                            href={`http://127.0.0.1:8000${currentEvidenceUrl}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-green-600 hover:underline flex items-center gap-1"
-                        >
-                            View File <ExternalLink size={10} />
-                        </a>
-                    </div>
-                    <div className="bg-green-200 p-1 rounded-full">
-                        <Check size={14} className="text-green-700" />
-                    </div>
+                    {/* Inline Image Preview */}
+                    {['.jpg', '.jpeg', '.png', '.gif', '.webp'].some(ext => currentEvidenceUrl.toLowerCase().endsWith(ext)) && (
+                        <div className="mt-2 rounded-lg overflow-hidden border border-green-200">
+                            <img
+                                src={`${API_BASE_URL}${currentEvidenceUrl}`}
+                                alt="Evidence"
+                                className="w-full h-auto object-contain max-h-[300px] bg-white"
+                            />
+                        </div>
+                    )}
                 </div>
             )}
 

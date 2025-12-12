@@ -55,7 +55,9 @@ const Navbar = ({ user }) => {
                 <div className="flex items-center gap-2 text-sm text-text-muted bg-subsurface px-3 py-1.5 rounded-full border border-border">
                     <Shield size={14} className="text-primary" />
                     <span className="font-medium text-text">{user.username}</span>
-                    <span className="text-xs opacity-70">({user.role})</span>
+                    <span className="text-xs opacity-70">
+                        ({user.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())})
+                    </span>
                 </div>
 
                 <Link

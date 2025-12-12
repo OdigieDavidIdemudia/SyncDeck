@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Send, User } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const TaskComments = ({ taskId, currentUser }) => {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState('');
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchComments();
-    }, [taskId]);
-
     const fetchComments = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await axios.get(`http://127.0.0.1:8000/tasks/${taskId}/comments/`, {
+            const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/comments/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setComments(response.data);
@@ -25,6 +22,10 @@ const TaskComments = ({ taskId, currentUser }) => {
         }
     };
 
+    useEffect(() => {
+        fetchComments();
+    }, [taskId]);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!newComment.trim()) return;
@@ -32,7 +33,7 @@ const TaskComments = ({ taskId, currentUser }) => {
         try {
             const token = localStorage.getItem('token');
             await axios.post(
-                `http://127.0.0.1:8000/tasks/${taskId}/comments/`,
+                `${API_BASE_URL}/tasks/${taskId}/comments/`,
                 { content: newComment },
                 { headers: { Authorization: `Bearer ${token}` } }
             );

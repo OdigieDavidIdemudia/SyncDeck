@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import loginHero from '../assets/login-bg.png';
 import logo from '../assets/logo.png';
+import { API_BASE_URL } from '../config';
 
 const Login = () => {
   const [username, setUsername] = useState('');
@@ -27,7 +28,7 @@ const Login = () => {
         params.append('mfa_code', mfaCode);
       }
 
-      const response = await axios.post('http://127.0.0.1:8000/token', params, {
+      const response = await axios.post(`${API_BASE_URL}/token`, params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },

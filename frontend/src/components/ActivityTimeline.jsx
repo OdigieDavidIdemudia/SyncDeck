@@ -7,30 +7,47 @@ import {
     FileText,
     RefreshCw,
     BarChart2,
-    CheckCircle
+    CheckCircle,
+    Download
 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const ActivityTimeline = ({ taskId }) => {
     const [activities, setActivities] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchTimeline();
-    }, [taskId]);
+        const abortController = new AbortController();
+        let isMounted = true;
 
-    const fetchTimeline = async () => {
-        try {
-            const token = localStorage.getItem('token');
-            const response = await axios.get(`http://127.0.0.1:8000/tasks/${taskId}/timeline`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setActivities(response.data);
-        } catch (error) {
-            console.error('Error fetching timeline:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        const fetchTimeline = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/timeline`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: abortController.signal
+                });
+                if (!isMounted) return;
+                setActivities(response.data);
+            } catch (error) {
+                if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
+                    return;
+                }
+                console.error('Error fetching timeline:', error);
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        fetchTimeline();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
+    }, [taskId]);
 
     const getActivityIcon = (type) => {
         switch (type) {
@@ -43,9 +60,47 @@ const ActivityTimeline = ({ taskId }) => {
         }
     };
 
+    const handleExport = () => {
+        if (!activities.length) return;
+
+        const headers = ['Date', 'User', 'Action', 'Description'];
+        const csvContent = [
+            headers.join(','),
+            ...activities.map(activity => {
+                const date = new Date(activity.created_at).toLocaleString().replace(/,/g, '');
+                const user = activity.user?.username || 'System';
+                const action = activity.activity_type;
+                const description = activity.description.replace(/,/g, ';').replace(/\n/g, ' ');
+                return [date, user, action, description].join(',');
+            })
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `task_audit_${taskId}_${new Date().toISOString().slice(0, 10)}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    };
+
     return (
         <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-text">Activity Timeline</h3>
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-text">Activity Timeline</h3>
+                <button
+                    onClick={handleExport}
+                    disabled={activities.length === 0}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-primary bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <Download size={14} />
+                    Export Audit
+                </button>
+            </div>
 
             <div className="relative border-l-2 border-border ml-3 space-y-6 pl-6 py-2">
                 {loading ? (
@@ -59,7 +114,7 @@ const ActivityTimeline = ({ taskId }) => {
                                 {getActivityIcon(activity.activity_type)}
                             </div>
                             <div>
-                                <p className="text-sm text-text font-medium">{activity.description}</p>
+                                <p className="text-sm text-text font-medium">{activity.description.replace(/_/g, ' ')}</p>
                                 <p className="text-xs text-text-muted">
                                     {new Date(activity.created_at).toLocaleString()} • {activity.user?.username || 'System'}
                                 </p>

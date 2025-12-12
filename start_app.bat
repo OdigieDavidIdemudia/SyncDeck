@@ -1,16 +1,16 @@
 @echo off
 echo ==========================================
-echo Starting Task Tracker Application
+echo Starting SyncDeck Application
 echo ==========================================
 
 :: Start Backend
 echo Starting Backend Server...
-start "Task Tracker Backend" cmd /k "uvicorn backend.main:app --reload"
+start "SyncDeck Backend" cmd /k "uvicorn backend.main:app --reload"
 
 :: Start Frontend
 echo Starting Frontend Server...
 cd frontend
-start "Task Tracker Frontend" cmd /k "npm run dev"
+start "SyncDeck Frontend" cmd /k "npm run dev"
 
 echo ==========================================
 echo Application started!

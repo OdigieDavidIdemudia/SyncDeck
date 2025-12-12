@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { API_BASE_URL } from '../config';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
@@ -9,20 +10,35 @@ const Analytics = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        const abortController = new AbortController();
+        let isMounted = true;
+
         const fetchData = async () => {
             const token = localStorage.getItem('token');
             try {
-                const res = await axios.get('http://127.0.0.1:8000/analytics/', {
-                    headers: { Authorization: `Bearer ${token}` }
+                const res = await axios.get(`${API_BASE_URL}/analytics/`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: abortController.signal
                 });
+                if (!isMounted) return;
                 setData(res.data);
                 setLoading(false);
             } catch (err) {
+                if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+                    return;
+                }
                 console.error(err);
-                setLoading(false);
+                if (isMounted) {
+                    setLoading(false);
+                }
             }
         };
         fetchData();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
     }, []);
 
     if (loading) return <div>Loading Analytics...</div>;

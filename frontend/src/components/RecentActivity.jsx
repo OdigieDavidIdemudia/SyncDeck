@@ -3,8 +3,11 @@ import { ArrowRight } from 'lucide-react';
 
 const RecentActivity = ({ tasks }) => {
     const navigate = useNavigate();
-    // Sort by created_at desc and take top 5
-    const recentTasks = [...tasks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
+    // Sort by created_at desc and take top 5, excluding waiting_on_external
+    const recentTasks = [...tasks]
+        .filter(t => t.status !== 'waiting_on_external')
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 5);
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -34,7 +37,7 @@ const RecentActivity = ({ tasks }) => {
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(task.status)}`}>
-                                    {task.status.replace('_', ' ')}
+                                    {task.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                 </span>
                                 <button
                                     className="text-primary hover:text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors"

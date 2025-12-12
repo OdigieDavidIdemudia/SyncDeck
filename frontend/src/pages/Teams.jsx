@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import Layout from '../components/Layout';
+import { API_BASE_URL } from '../config';
 
 const Teams = () => {
     const [teams, setTeams] = useState([]);
@@ -15,17 +16,17 @@ const Teams = () => {
         const token = localStorage.getItem('token');
         const fetchData = async () => {
             try {
-                const userRes = await axios.get('http://127.0.0.1:8000/users/me', {
+                const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 setUser(userRes.data);
 
-                const teamsRes = await axios.get('http://127.0.0.1:8000/teams/', {
+                const teamsRes = await axios.get(`${API_BASE_URL}/teams/`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 setTeams(teamsRes.data);
 
-                const usersRes = await axios.get('http://127.0.0.1:8000/users/', {
+                const usersRes = await axios.get(`${API_BASE_URL}/users/`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 // Filter out group_head users from assignment list
@@ -41,12 +42,12 @@ const Teams = () => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
-            await axios.post('http://127.0.0.1:8000/teams/', { name: newTeamName }, {
+            await axios.post(`${API_BASE_URL}/teams/`, { name: newTeamName }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setNewTeamName('');
             // Refresh teams
-            const res = await axios.get('http://127.0.0.1:8000/teams/', {
+            const res = await axios.get(`${API_BASE_URL}/teams/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTeams(res.data);
@@ -59,7 +60,7 @@ const Teams = () => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
-            await axios.post('http://127.0.0.1:8000/users/', {
+            await axios.post(`${API_BASE_URL}/users/`, {
                 username: newMemberName,
                 password: newMemberPassword,
                 role: 'member',
@@ -70,7 +71,7 @@ const Teams = () => {
             setNewMemberName('');
             setNewMemberPassword('');
             // Refresh users
-            const res = await axios.get('http://127.0.0.1:8000/users/', {
+            const res = await axios.get(`${API_BASE_URL}/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(res.data.filter(u => u.role !== 'group_head'));
@@ -83,11 +84,11 @@ const Teams = () => {
     const handleAssignUser = async (userId, teamId) => {
         const token = localStorage.getItem('token');
         try {
-            await axios.put(`http://127.0.0.1:8000/users/${userId}`, { team_id: teamId }, {
+            await axios.put(`${API_BASE_URL}/users/${userId}`, { team_id: teamId }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             // Refresh users
-            const res = await axios.get('http://127.0.0.1:8000/users/', {
+            const res = await axios.get(`${API_BASE_URL}/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(res.data);
@@ -99,11 +100,11 @@ const Teams = () => {
     const handlePromoteToUnitHead = async (userId) => {
         const token = localStorage.getItem('token');
         try {
-            await axios.put(`http://127.0.0.1:8000/users/${userId}`, { role: 'unit_head' }, {
+            await axios.put(`${API_BASE_URL}/users/${userId}`, { role: 'unit_head' }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             // Refresh users
-            const res = await axios.get('http://127.0.0.1:8000/users/', {
+            const res = await axios.get(`${API_BASE_URL}/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(res.data.filter(u => u.role !== 'group_head'));

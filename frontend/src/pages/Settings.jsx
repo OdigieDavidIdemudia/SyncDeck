@@ -3,6 +3,7 @@ import axios from 'axios';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { QRCodeSVG } from 'qrcode.react';
+import { API_BASE_URL } from '../config';
 
 const Settings = () => {
     const [loading, setLoading] = useState(true);
@@ -42,45 +43,65 @@ const Settings = () => {
     const [deletingUser, setDeletingUser] = useState(null);
 
     useEffect(() => {
+        const abortController = new AbortController();
+        let isMounted = true;
+
         const fetchUser = async () => {
             const token = localStorage.getItem('token');
             try {
-                const res = await axios.get('http://127.0.0.1:8000/users/me', {
-                    headers: { Authorization: `Bearer ${token}` }
+                const res = await axios.get(`${API_BASE_URL}/users/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: abortController.signal
                 });
+                if (!isMounted) return;
                 setCurrentUser(res.data);
                 setLoading(false);
             } catch (err) {
+                if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+                    return;
+                }
                 console.error(err);
             }
         };
         fetchUser();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
     }, []);
 
     useEffect(() => {
-        if (currentUser) {
-            setFormData({
-                username: currentUser.username,
-                email: currentUser.email || '',
-                password: '',
-                confirmPassword: ''
-            });
-            if (currentUser.role === 'group_head') {
-                fetchUsersAndTeams();
-            }
+        const abortController = new AbortController();
+
+        if (currentUser && currentUser.role === 'group_head') {
+            fetchUsersAndTeams(abortController.signal);
         }
+
+        return () => {
+            abortController.abort();
+        };
     }, [currentUser]);
 
-    const fetchUsersAndTeams = async () => {
+    const fetchUsersAndTeams = async (signal) => {
         const token = localStorage.getItem('token');
         try {
             const [usersRes, teamsRes] = await Promise.all([
-                axios.get('http://127.0.0.1:8000/users/', { headers: { Authorization: `Bearer ${token}` } }),
-                axios.get('http://127.0.0.1:8000/teams/', { headers: { Authorization: `Bearer ${token}` } })
+                axios.get(`${API_BASE_URL}/users/`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal
+                }),
+                axios.get(`${API_BASE_URL}/teams/`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal
+                })
             ]);
             setUsers(usersRes.data);
             setTeams(teamsRes.data);
         } catch (err) {
+            if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+                return;
+            }
             console.error(err);
         }
     };
@@ -88,7 +109,7 @@ const Settings = () => {
     const handleSetupMFA = async () => {
         const token = localStorage.getItem('token');
         try {
-            const res = await axios.post('http://127.0.0.1:8000/auth/mfa/setup', {}, {
+            const res = await axios.post(`${API_BASE_URL}/auth/mfa/setup`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setMfaSecret(res.data.secret);
@@ -102,7 +123,7 @@ const Settings = () => {
     const handleEnableMFA = async () => {
         const token = localStorage.getItem('token');
         try {
-            await axios.post('http://127.0.0.1:8000/auth/mfa/enable',
+            await axios.post(`${API_BASE_URL}/auth/mfa/enable`,
                 new URLSearchParams({ secret: mfaSecret, code: mfaCode }),
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } }
             );
@@ -118,7 +139,7 @@ const Settings = () => {
     const handleProfileUpdate = async () => {
         const token = localStorage.getItem('token');
         try {
-            await axios.put(`http://127.0.0.1:8000/users/${currentUser.id}`,
+            await axios.put(`${API_BASE_URL}/users/${currentUser.id}`,
                 { username: formData.username, email: formData.email },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -137,7 +158,7 @@ const Settings = () => {
         }
         const token = localStorage.getItem('token');
         try {
-            await axios.put(`http://127.0.0.1:8000/users/${currentUser.id}`,
+            await axios.put(`${API_BASE_URL}/users/${currentUser.id}`,
                 { password: passwordData.newPassword },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -152,7 +173,7 @@ const Settings = () => {
     const handleCreateUser = async () => {
         const token = localStorage.getItem('token');
         try {
-            await axios.post('http://127.0.0.1:8000/users/',
+            await axios.post(`${API_BASE_URL}/users/`,
                 { ...newUser, team_id: newUser.team_id || null },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -174,7 +195,7 @@ const Settings = () => {
                 role: editingUser.role,
                 team_id: editingUser.team_id || null
             };
-            await axios.put(`http://127.0.0.1:8000/users/${editingUser.id}`,
+            await axios.put(`${API_BASE_URL}/users/${editingUser.id}`,
                 updateData,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -191,7 +212,7 @@ const Settings = () => {
         if (!deletingUser) return;
         const token = localStorage.getItem('token');
         try {
-            await axios.delete(`http://127.0.0.1:8000/users/${deletingUser.id}`,
+            await axios.delete(`${API_BASE_URL}/users/${deletingUser.id}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             alert('User deleted successfully');

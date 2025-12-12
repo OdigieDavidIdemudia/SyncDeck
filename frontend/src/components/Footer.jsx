@@ -30,25 +30,26 @@ const Footer = () => {
     };
 
     return (
-        <footer className="bg-[#0f172a] text-white py-6 border-t border-gray-800 mt-auto">
+        <footer className="bg-[#0f172a] text-white py-3 border-t border-gray-800 mt-auto">
             <div className="container mx-auto px-6 max-w-screen-xl">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    {/* Left side - Clock and Copyright */}
-                    <div className="flex flex-col md:flex-row items-center gap-6">
+                    {/* Left side - Clock */}
+                    <div className="flex items-center gap-6">
                         {/* Digital Clock */}
-                        <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <div className="text-xl font-bold text-primary tabular-nums">
+                        <div className="p-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                            <div className="text-lg font-bold text-primary tabular-nums">
                                 {formatTime(currentTime)}
                             </div>
-                            <div className="text-xs text-gray-400 mt-1 text-center">
+                            <div className="text-xs text-gray-400 mt-0.5 text-center">
                                 {formatDate(currentTime)}
                             </div>
                         </div>
-
-                        <p className="text-gray-500 text-sm">
-                            © {new Date().getFullYear()} SyncDeck Inc. All rights reserved.
-                        </p>
                     </div>
+
+                    {/* Right side - Copyright */}
+                    <p className="text-gray-500 text-xs">
+                        © {new Date().getFullYear()} SyncDeck Inc. All rights reserved.
+                    </p>
                 </div>
             </div>
         </footer>

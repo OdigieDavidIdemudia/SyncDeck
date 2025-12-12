@@ -4,6 +4,8 @@ import axios from 'axios';
 import TaskComments from './TaskComments';
 import ActivityTimeline from './ActivityTimeline';
 import EvidenceUpload from './EvidenceUpload';
+import Toast from './Toast';
+import { API_BASE_URL } from '../config';
 
 const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -20,6 +22,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
     const [activeTab, setActiveTab] = useState('details');
     const [showHelpRequest, setShowHelpRequest] = useState(false);
     const [helpReason, setHelpReason] = useState('');
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
     useEffect(() => {
         if (task) {
@@ -29,7 +32,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                 status: task.status || 'ongoing',
                 criticality: task.criticality || 'medium',
                 progress_percentage: task.progress_percentage || 0,
-                assigned_to: task.assigned_to || null,
+                assigned_to: task.assignee_id || null,
                 deadline: task.deadline || '',
                 summary_text: ''
             });
@@ -47,12 +50,18 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
 
     const handleSave = async () => {
         try {
+            // Enforce logic: Members cannot mark as completed. 100% means pending_approval.
+            let finalStatus = editedTask.status;
+            if (!canEditMetadata && editedTask.progress_percentage === 100) {
+                finalStatus = 'pending_approval';
+            }
+
             const token = localStorage.getItem('token');
             await axios.post(
-                `http://127.0.0.1:8000/tasks/${task.id}/update`,
+                `${API_BASE_URL}/tasks/${task.id}/update`,
                 {
                     progress_percentage: editedTask.progress_percentage,
-                    status: editedTask.status,
+                    status: finalStatus,
                     summary_text: editedTask.summary_text
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -60,7 +69,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
 
             if (canEditMetadata) {
                 await axios.put(
-                    `http://127.0.0.1:8000/tasks/${task.id}`,
+                    `${API_BASE_URL}/tasks/${task.id}`,
                     {
                         title: editedTask.title,
                         description: editedTask.description,
@@ -77,21 +86,27 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
             onUpdate();
             setIsEditing(false);
             onClose();
+            setToast({ show: true, message: 'Task updated successfully', type: 'success' });
         } catch (err) {
             console.error('Error updating task:', err);
-            alert(err.response?.data?.detail || 'Failed to update task');
+            setToast({ show: true, message: err.response?.data?.detail || 'Failed to update task', type: 'error' });
         }
     };
 
     const handleProgressChange = (newProgress) => {
         let newStatus = editedTask.status;
 
-        if (newProgress === 0) {
+        // Auto-update status based on progress
+        if (newProgress === 100) {
+            // Assigners can complete directly. Members go to pending approval.
+            newStatus = canEditMetadata ? 'completed' : 'pending_approval';
+        } else if (newProgress === 0) {
             newStatus = 'not_started';
-        } else if (newProgress > 0 && newProgress < 100) {
-            newStatus = 'ongoing';
-        } else if (newProgress === 100) {
-            newStatus = 'pending_approval';
+        } else {
+            // For any progress > 0 and < 100, ensure status is ongoing (unless it was blocked/waiting etc)
+            if (['not_started', 'completed', 'pending_approval', 'pending_group_head_approval'].includes(newStatus)) {
+                newStatus = 'ongoing';
+            }
         }
 
         setEditedTask(prev => ({
@@ -101,20 +116,52 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
         }));
     };
 
+    const getProgressColor = (percent) => {
+        if (percent === 0) return '#cfcfcf';
+        if (percent === 5) return '#ff6b6b';
+        if (percent <= 25) return '#ffa726';
+        if (percent <= 50) return '#ffd54f';
+        if (percent <= 75) return '#42a5f5';
+        return '#66bb6a'; // 100
+    };
+
+    const getProgressLabel = (percent) => {
+        const options = [
+            { text: "Not Started", percent: 0 },
+            { text: "Started", percent: 5 },
+            { text: "In Progress", percent: 25 },
+            { text: "On Track", percent: 50 },
+            { text: "Near Completion", percent: 75 },
+            { text: "Completed", percent: 100 }
+        ];
+        // Find exact match or closest lower bound? Spec implies discrete options map to text.
+        // But with slider step 5, we might have 10, 15 etc.
+        // Let's return exact match if exists, otherwise "In Progress" generic or nearest.
+        const match = options.find(o => o.percent === percent);
+        if (match) return match.text;
+
+        if (percent === 0) return "Not Started";
+        if (percent < 25) return "Started";
+        if (percent < 50) return "In Progress";
+        if (percent < 75) return "On Track";
+        if (percent < 100) return "Near Completion";
+        return "Completed";
+    };
+
     const handleApprove = async () => {
         try {
             const token = localStorage.getItem('token');
             await axios.post(
-                `http://127.0.0.1:8000/tasks/${task.id}/approve`,
+                `${API_BASE_URL}/tasks/${task.id}/approve`,
                 {},
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('Task approved and marked as completed!');
+            setToast({ show: true, message: 'Task approved and marked as completed!', type: 'success' });
             onUpdate();
-            onClose();
+            setTimeout(onClose, 1500);
         } catch (err) {
             console.error('Error approving task:', err);
-            alert(err.response?.data?.detail || 'Failed to approve task');
+            setToast({ show: true, message: err.response?.data?.detail || 'Failed to approve task', type: 'error' });
         }
     };
 
@@ -123,16 +170,16 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
         try {
             const token = localStorage.getItem('token');
             await axios.post(
-                `http://127.0.0.1:8000/tasks/${task.id}/help-request`,
+                `${API_BASE_URL}/tasks/${task.id}/help-request`,
                 { reason: helpReason },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             setShowHelpRequest(false);
             setHelpReason('');
-            alert('Help request sent to Unit Head');
+            setToast({ show: true, message: 'Help request sent to Unit Head', type: 'success' });
         } catch (err) {
             console.error('Error requesting help:', err);
-            alert('Failed to request help');
+            setToast({ show: true, message: 'Failed to request help', type: 'error' });
         }
     };
 
@@ -162,6 +209,13 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            {toast.show && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast({ ...toast, show: false })}
+                />
+            )}
             <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 {/* Header */}
                 <div className="sticky top-0 bg-white border-b border-border p-6 flex justify-between items-center z-10">
@@ -198,39 +252,53 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-border px-6 sticky top-[88px] bg-white z-10">
+                <div className="grid grid-cols-4 border-b border-border px-6 sticky top-[88px] bg-white z-10 relative">
+                    {/* Sliding Indicator */}
+                    <div
+                        className="absolute bottom-0 h-0.5 bg-primary transition-all duration-300 ease-in-out"
+                        style={{
+                            width: '25%',
+                            left: activeTab === 'details' ? '0%' :
+                                activeTab === 'activity' ? '25%' :
+                                    activeTab === 'comments' ? '50%' : '75%'
+                        }}
+                    />
+
                     <button
                         onClick={() => setActiveTab('details')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'details' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
+                        className={`py-3 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-primary' : 'text-text-muted hover:text-text'}`}
                     >
                         Details
                     </button>
                     <button
                         onClick={() => setActiveTab('activity')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'activity' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
+                        className={`py-3 text-sm font-medium transition-colors ${activeTab === 'activity' ? 'text-primary' : 'text-text-muted hover:text-text'}`}
                     >
                         Activity
                     </button>
                     <button
                         onClick={() => setActiveTab('comments')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'comments' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
+                        className={`py-3 text-sm font-medium transition-colors ${activeTab === 'comments' ? 'text-primary' : 'text-text-muted hover:text-text'}`}
                     >
                         Comments
                     </button>
                     <button
                         onClick={() => setActiveTab('evidence')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'evidence' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
+                        className={`py-3 text-sm font-medium transition-colors ${activeTab === 'evidence' ? 'text-primary' : 'text-text-muted hover:text-text'}`}
                     >
                         Evidence
                     </button>
                 </div>
 
                 {/* Content */}
-                <div className="p-6 space-y-6">
+                <div
+                    key={activeTab}
+                    className="p-6 space-y-6 min-h-[400px] animate-in fade-in duration-300"
+                >
                     {activeTab === 'details' && (
                         <>
                             {/* Title */}
-                            <div>
+                            <div className="pb-4 border-b border-border">
                                 <label className="block text-sm font-medium text-text-muted mb-2">Title</label>
                                 {isEditing && canEditMetadata ? (
                                     <input
@@ -245,7 +313,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                             </div>
 
                             {/* Description */}
-                            <div>
+                            <div className="pb-4 border-b border-border">
                                 <label className="block text-sm font-medium text-text-muted mb-2">Description</label>
                                 {isEditing && canEditMetadata ? (
                                     <textarea
@@ -259,7 +327,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                             </div>
 
                             {/* Status & Criticality */}
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border">
                                 <div>
                                     <label className="block text-sm font-medium text-text-muted mb-2">Status</label>
                                     {isEditing ? (
@@ -270,7 +338,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                                         >
                                             <option value="not_started">Not Started</option>
                                             <option value="ongoing">Ongoing</option>
-                                            <option value="completed">Completed</option>
+                                            {canEditMetadata && <option value="completed">Completed</option>}
                                             <option value="continuous">Continuous</option>
                                             <option value="blocked">Blocked</option>
                                             <option value="waiting_on_external">Waiting on External</option>
@@ -278,8 +346,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                                             <option value="pending_approval">Pending Approval</option>
                                         </select>
                                     ) : (
-                                        <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(task.status)}`}>
-                                            {task.status?.toUpperCase().replace(/_/g, ' ')}
+                                        <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium border text-center leading-tight max-w-[140px] ${getStatusColor(task.status)}`}>
+                                            {task.status && task.status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                                         </span>
                                     )}
                                 </div>
@@ -305,56 +373,57 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                             </div>
 
                             {/* Progress - Dual Input System */}
-                            <div>
+                            <div className="pb-4 border-b border-border">
                                 <label className="block text-sm font-medium text-text-muted mb-2">Progress</label>
                                 {isEditing ? (
                                     <div className="space-y-4 bg-subsurface p-4 rounded-lg border border-border">
-                                        {/* Presets */}
-                                        <div className="flex gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => handleProgressChange(0)}
-                                                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${editedTask.progress_percentage === 0 ? 'bg-gray-200 border-gray-300 text-gray-800' : 'bg-white border-border text-text-muted hover:bg-gray-50'}`}
-                                            >
-                                                Not Started (0%)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleProgressChange(50)}
-                                                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${editedTask.progress_percentage === 50 ? 'bg-blue-100 border-blue-200 text-blue-800' : 'bg-white border-border text-text-muted hover:bg-gray-50'}`}
-                                            >
-                                                In Progress (50%)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleProgressChange(100)}
-                                                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${editedTask.progress_percentage === 100 ? 'bg-amber-100 border-amber-200 text-amber-800' : 'bg-white border-border text-text-muted hover:bg-gray-50'}`}
-                                            >
-                                                Ready for Review (100%)
-                                            </button>
-                                        </div>
-
-                                        {/* Slider & Manual Input */}
-                                        <div className="flex items-center gap-4">
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-2xl font-bold" style={{ color: getProgressColor(editedTask.progress_percentage) }}>
+                                                    {editedTask.progress_percentage}%
+                                                </span>
+                                                <span className="text-sm font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
+                                                    {getProgressLabel(editedTask.progress_percentage)}
+                                                </span>
+                                            </div>
                                             <input
                                                 type="range"
                                                 min="0"
                                                 max="100"
-                                                step="10"
+                                                step="5"
                                                 value={editedTask.progress_percentage}
                                                 onChange={(e) => handleProgressChange(parseInt(e.target.value))}
-                                                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary"
+                                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary"
+                                                style={{
+                                                    accentColor: getProgressColor(editedTask.progress_percentage)
+                                                }}
                                             />
-                                            <div className="flex items-center gap-1">
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    value={editedTask.progress_percentage}
-                                                    onChange={(e) => handleProgressChange(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                                                    className="w-16 px-2 py-1 text-right border border-border rounded-md text-sm"
-                                                />
-                                                <span className="text-sm text-text-muted">%</span>
+                                            <div className="flex justify-between text-xs text-text-muted mb-4">
+                                                <span>0%</span>
+                                                <span>50%</span>
+                                                <span>100%</span>
+                                            </div>
+
+                                            {/* Preset Buttons */}
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                {[
+                                                    { label: 'Started', value: 5 },
+                                                    { label: 'In Progress', value: 25 },
+                                                    { label: 'On Track', value: 50 },
+                                                    { label: 'Near Done', value: 75 },
+                                                    { label: 'Done (Review)', value: 100 }
+                                                ].map(preset => (
+                                                    <button
+                                                        key={preset.value}
+                                                        onClick={() => handleProgressChange(preset.value)}
+                                                        className={`px-3 py-2 text-xs font-medium rounded-lg border transition-all ${editedTask.progress_percentage === preset.value
+                                                            ? 'bg-primary text-white border-primary shadow-sm'
+                                                            : 'bg-white text-text-muted border-border hover:border-primary/50 hover:bg-primary/5'
+                                                            }`}
+                                                    >
+                                                        {preset.label} ({preset.value}%)
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
@@ -373,7 +442,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
 
                             {/* Summary Field */}
                             {isEditing && (
-                                <div>
+                                <div className="pb-4 border-b border-border">
                                     <label className="block text-sm font-medium text-text-muted mb-2">Update Summary</label>
                                     <textarea
                                         value={editedTask.summary_text}
@@ -386,7 +455,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
 
                             {/* Assigned To */}
                             {canEditMetadata && (
-                                <div>
+                                <div className="pb-4 border-b border-border">
                                     <label className="block text-sm font-medium text-text-muted mb-2">Assigned To</label>
                                     {isEditing ? (
                                         <select
@@ -397,7 +466,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                                             <option value="">Select team member</option>
                                             {teamMembers.map(member => (
                                                 <option key={member.id} value={member.id}>
-                                                    {member.username} ({member.role})
+                                                    {member.username} ({member.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())})
                                                 </option>
                                             ))}
                                         </select>
@@ -411,21 +480,22 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                             )}
 
                             {/* Deadline */}
-                            <div>
+                            <div className="pb-4 border-b border-border">
                                 <label className="block text-sm font-medium text-text-muted mb-2">Deadline</label>
                                 {isEditing && canEditMetadata ? (
                                     <input
                                         type="datetime-local"
                                         value={editedTask.deadline ? new Date(editedTask.deadline).toISOString().slice(0, 16) : ''}
+                                        min={new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
                                         onChange={(e) => setEditedTask({ ...editedTask, deadline: e.target.value })}
                                         className="input w-full"
                                     />
                                 ) : (
-                                    <div className="flex items-center gap-2">
-                                        <Calendar size={16} className="text-text-muted" />
-                                        <span className="text-text">
-                                            {task.deadline ? new Date(task.deadline).toLocaleString() : 'No deadline set'}
-                                        </span>
+                                    <div className="flex items-center gap-2 text-text">
+                                        <div className="p-2 bg-surface-hover rounded-lg">
+                                            <Calendar size={18} className="text-text-muted" />
+                                        </div>
+                                        <span>{task.deadline ? new Date(task.deadline).toLocaleString() : 'No deadline'}</span>
                                     </div>
                                 )}
                             </div>
@@ -441,6 +511,19 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                                     <p className="text-text">{new Date(task.created_at).toLocaleString()}</p>
                                 </div>
                             </div>
+
+                            {/* Completed At - Audit Trail for Completed Tasks */}
+                            {task.status === 'completed' && task.completed_at && (
+                                <div className="pt-4 border-t border-border">
+                                    <div className="flex items-center gap-2 bg-green-50 p-4 rounded-lg border border-green-200">
+                                        <Clock size={18} className="text-green-600" />
+                                        <div>
+                                            <label className="block text-sm font-medium text-green-700">Completed At</label>
+                                            <p className="text-green-800 font-medium">{new Date(task.completed_at).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Help Request Button */}
                             {!isEditing && (
@@ -493,14 +576,16 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                     )}
 
                     {activeTab === 'evidence' && (
-                        <EvidenceUpload
-                            taskId={task.id}
-                            currentEvidenceUrl={task.evidence_url}
-                            onUploadComplete={(url) => {
-                                alert('Evidence uploaded successfully!');
-                                onUpdate();
-                            }}
-                        />
+                        <div className="flex flex-col justify-center min-h-[350px] w-full">
+                            <EvidenceUpload
+                                taskId={task.id}
+                                currentEvidenceUrl={task.evidence_url}
+                                onUploadComplete={(url) => {
+                                    setToast({ show: true, message: 'Evidence uploaded successfully!', type: 'success' });
+                                    onUpdate();
+                                }}
+                            />
+                        </div>
                     )}
                 </div>
 

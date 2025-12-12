@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Trophy, Target, Zap, Shield } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const MemberAchievements = ({ userId }) => {
     const [stats, setStats] = useState(null);
@@ -13,7 +14,7 @@ const MemberAchievements = ({ userId }) => {
     const fetchStats = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await axios.get(`http://127.0.0.1:8000/users/${userId}/achievement-stats`, {
+            const response = await axios.get(`${API_BASE_URL}/users/${userId}/achievement-stats`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStats(response.data);

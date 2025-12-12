@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import Layout from '../components/Layout';
+import { API_BASE_URL } from '../config';
 
 const TeamMembers = () => {
     const [members, setMembers] = useState([]);
@@ -12,7 +13,7 @@ const TeamMembers = () => {
         const token = localStorage.getItem('token');
         const fetchData = async () => {
             try {
-                const userRes = await axios.get('http://127.0.0.1:8000/users/me', {
+                const userRes = await axios.get(`${API_BASE_URL}/users/me`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 setUser(userRes.data);
@@ -21,7 +22,7 @@ const TeamMembers = () => {
                 // Backend doesn't have a "get my team members" endpoint yet, but we can use /users/ and filter.
                 // Or better, let's assume /users/ returns all and we filter.
                 // Ideally we should have a specific endpoint.
-                const usersRes = await axios.get('http://127.0.0.1:8000/users/', {
+                const usersRes = await axios.get(`${API_BASE_URL}/users/`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 // Filter for my team
@@ -44,7 +45,7 @@ const TeamMembers = () => {
         const token = localStorage.getItem('token');
         try {
             // Unit Head creating a user. Backend handles team assignment automatically for Unit Head.
-            await axios.post('http://127.0.0.1:8000/users/', {
+            await axios.post(`${API_BASE_URL}/users/`, {
                 username: newMemberName,
                 password: newMemberPassword,
                 role: 'member' // Enforced by backend anyway
@@ -55,7 +56,7 @@ const TeamMembers = () => {
             setNewMemberPassword('');
 
             // Refresh
-            const usersRes = await axios.get('http://127.0.0.1:8000/users/', {
+            const usersRes = await axios.get(`${API_BASE_URL}/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const myTeam = usersRes.data.filter(u =>
@@ -74,7 +75,7 @@ const TeamMembers = () => {
         if (!confirm('Are you sure?')) return;
         const token = localStorage.getItem('token');
         try {
-            await axios.delete(`http://127.0.0.1:8000/users/${userId}`, {
+            await axios.delete(`${API_BASE_URL}/users/${userId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setMembers(members.filter(m => m.id !== userId));

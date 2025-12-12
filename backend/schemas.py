@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import List, Optional
 from datetime import datetime
 from .models import UserRole, TaskStatus, TaskCriticality, ActivityType, HelpRequestStatus
@@ -112,6 +112,14 @@ class TaskProgressUpdateBase(BaseModel):
     progress_percentage: int
     status: str
     summary_text: Optional[str] = None
+
+    @validator('progress_percentage')
+    def validate_progress(cls, v):
+        if not (0 <= v <= 100):
+             raise ValueError('Progress must be between 0 and 100')
+        if v % 5 != 0:
+             raise ValueError('Progress must be a multiple of 5')
+        return v
 
 class TaskProgressUpdateCreate(TaskProgressUpdateBase):
     pass
