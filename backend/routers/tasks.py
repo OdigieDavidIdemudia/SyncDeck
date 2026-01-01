@@ -21,38 +21,55 @@ def create_task(task: schemas.TaskCreate, db: Session = Depends(database.get_db)
     if task.is_internal and current_user.role not in [models.UserRole.UNIT_HEAD, models.UserRole.BACKUP_UNIT_HEAD]:
          raise HTTPException(status_code=403, detail="Only Unit Heads (or Backups) can create internal tasks")
 
-    db_task = models.Task(**task.dict(), assigner_id=current_user.id)
+    # Extract assigned_to list and remove from dict
+    task_dict = task.dict(exclude={'assigned_to'})
+    assigned_to_ids = task.assigned_to or []
+    
+    # Set legacy assignee_id to first assignee for backward compatibility
+    task_dict['assignee_id'] = assigned_to_ids[0] if assigned_to_ids else None
+    task_dict['assigner_id'] = current_user.id
+    
+    db_task = models.Task(**task_dict)
     db.add(db_task)
+    db.flush()  # Get task ID without committing
+    
+    # Create TaskAssignee entries for each assignee
+    for user_id in assigned_to_ids:
+        task_assignee = models.TaskAssignee(
+            task_id=db_task.id,
+            user_id=user_id
+        )
+        db.add(task_assignee)
+    
     db.commit()
     db.refresh(db_task)
     
-    # Send email notification to assignee
+    # Send email notifications to all assignees
     try:
-        if db_task.assignee and db_task.assignee.email:
-            email_service.send_task_assignment_email(
-                recipient_email=db_task.assignee.email,
-                recipient_name=db_task.assignee.username,
-                task_title=db_task.title,
-                task_description=db_task.description or "No description provided",
-                assigner_name=current_user.username,
-                deadline=db_task.deadline.strftime("%Y-%m-%d %H:%M") if db_task.deadline else None,
-                criticality=db_task.criticality.value if db_task.criticality else "medium"
-            )
+        assignee_users = db.query(models.User).filter(models.User.id.in_(assigned_to_ids)).all()
+        for assignee in assignee_users:
+            if assignee.email:
+                email_service.send_task_assignment_email(
+                    recipient_email=assignee.email,
+                    recipient_name=assignee.username,
+                    task_title=db_task.title,
+                    task_description=db_task.description or "No description provided",
+                    assigner_name=current_user.username,
+                    deadline=db_task.deadline.strftime("%Y-%m-%d %H:%M") if db_task.deadline else None,
+                    criticality=db_task.criticality.value if db_task.criticality else "medium"
+                )
     except Exception as e:
         # Log error but don't fail task creation
         print(f"Failed to send email notification: {str(e)}")
     
     return db_task
 
+
 @router.get("/", response_model=List[schemas.Task])
 def read_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
+    # Query tasks based on user role
     if current_user.role == models.UserRole.GROUP_HEAD:
-        # See all tasks EXCEPT internal ones
-        # STRICT FILTER:
-        # 1. Assigned to a user with a team id
-        # 2. OR Unassigned, but created by a user with a team id
-        # 3. OR Created by self
-        
+        # See all tasks EXCEPT internal ones (via task_assignees OR legacy assignee_id)
         Assignee = aliased(models.User)
         Assigner = aliased(models.User)
 
@@ -64,20 +81,104 @@ def read_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(database.g
                 or_(
                     Assignee.team_id != None,
                     and_(models.Task.assignee_id == None, Assigner.team_id != None),
-                    models.Task.assigner_id == current_user.id
+                    models.Task.assigner_id == current_user.id,
+                    # Also include tasks where current user is in task_assignees
+                    models.Task.id.in_(
+                        db.query(models.TaskAssignee.task_id).filter(
+                            models.TaskAssignee.user_id.in_(
+                                db.query(models.User.id).filter(models.User.team_id != None)
+                            )
+                        )
+                    )
                 )
             ).offset(skip).limit(limit).all()
     elif current_user.role in [models.UserRole.UNIT_HEAD, models.UserRole.BACKUP_UNIT_HEAD]:
-        # See tasks assigned to members of their team (including internal)
+        # See tasks assigned to members of their team (via task_assignees OR legacy assignee_id)
         if current_user.team_id:
-            tasks = db.query(models.Task).join(models.User, models.Task.assignee_id == models.User.id).filter(models.User.team_id == current_user.team_id).offset(skip).limit(limit).all()
+            # Tasks where assignee is in their team OR task_assignees contains team member
+            tasks = db.query(models.Task).filter(
+                or_(
+                    models.Task.assignee_id.in_(
+                        db.query(models.User.id).filter(models.User.team_id == current_user.team_id)
+                    ),
+                    models.Task.id.in_(
+                        db.query(models.TaskAssignee.task_id).filter(
+                            models.TaskAssignee.user_id.in_(
+                                db.query(models.User.id).filter(models.User.team_id == current_user.team_id)
+                            )
+                        )
+                    )
+                )
+            ).offset(skip).limit(limit).all()
         else:
-            # Fallback
-            tasks = db.query(models.Task).filter(models.Task.assignee_id == current_user.id).offset(skip).limit(limit).all()
+            # Fallback: tasks assigned to current user
+            tasks = db.query(models.Task).filter(
+                or_(
+                    models.Task.assignee_id == current_user.id,
+                    models.Task.id.in_(
+                        db.query(models.TaskAssignee.task_id).filter(models.TaskAssignee.user_id == current_user.id)
+                    )
+                )
+            ).offset(skip).limit(limit).all()
     else:
-        # Member: See assigned tasks
-        tasks = db.query(models.Task).filter(models.Task.assignee_id == current_user.id).offset(skip).limit(limit).all()
+        # Member: See tasks assigned to them (via task_assignees OR legacy assignee_id)
+        tasks = db.query(models.Task).filter(
+            or_(
+                models.Task.assignee_id == current_user.id,
+                models.Task.id.in_(
+                    db.query(models.TaskAssignee.task_id).filter(models.TaskAssignee.user_id == current_user.id)
+                )
+            )
+        ).offset(skip).limit(limit).all()
+    
+    # Populate assignees list and is_new flag for each task
+    for task in tasks:
+        # Get all assignees from task_assignees table
+        task_assignees = db.query(models.TaskAssignee).filter(models.TaskAssignee.task_id == task.id).all()
+        assignee_ids = [ta.user_id for ta in task_assignees]
+        task.assignees = db.query(models.User).filter(models.User.id.in_(assignee_ids)).all() if assignee_ids else []
+        
+        # Check if task is new for current user
+        current_user_assignment = next((ta for ta in task_assignees if ta.user_id == current_user.id), None)
+        task.is_new = current_user_assignment.viewed_at is None if current_user_assignment else False
+    
     return tasks
+
+@router.get("/{task_id}", response_model=schemas.Task)
+def get_task(task_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
+    """Get a single task by ID"""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Populate assignees list
+    task_assignees = db.query(models.TaskAssignee).filter(models.TaskAssignee.task_id == task.id).all()
+    assignee_ids = [ta.user_id for ta in task_assignees]
+    task.assignees = db.query(models.User).filter(models.User.id.in_(assignee_ids)).all() if assignee_ids else []
+    
+    # Check if task is new for current user
+    current_user_assignment = next((ta for ta in task_assignees if ta.user_id == current_user.id), None)
+    task.is_new = current_user_assignment.viewed_at is None if current_user_assignment else False
+    
+    return task
+
+@router.post("/{task_id}/mark-viewed")
+def mark_task_viewed(task_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
+    """Mark a task as viewed by the current user"""
+    task_assignee = db.query(models.TaskAssignee).filter(
+        models.TaskAssignee.task_id == task_id,
+        models.TaskAssignee.user_id == current_user.id
+    ).first()
+    
+    if not task_assignee:
+        raise HTTPException(status_code=404, detail="Task assignment not found")
+    
+    if task_assignee.viewed_at is None:
+        task_assignee.viewed_at = datetime.utcnow()
+        db.commit()
+    
+    return {"message": "Task marked as viewed"}
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
@@ -218,6 +319,79 @@ def read_comments(task_id: int, db: Session = Depends(database.get_db), current_
     comments = db.query(models.Comment).filter(models.Comment.task_id == task_id).order_by(models.Comment.created_at.desc()).all()
     return comments
 
+@router.put("/{task_id}/comments/{comment_id}", response_model=schemas.Comment)
+def update_comment(
+    task_id: int, 
+    comment_id: int, 
+    comment_update: schemas.CommentUpdate, 
+    db: Session = Depends(database.get_db), 
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    """Edit a comment. Only the comment author can edit their own comments."""
+    db_comment = db.query(models.Comment).filter(
+        models.Comment.id == comment_id,
+        models.Comment.task_id == task_id
+    ).first()
+    
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Check if current user is the comment author
+    if db_comment.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own comments")
+    
+    # Update the comment content
+    db_comment.content = comment_update.content
+    
+    # Log activity
+    activity = models.TaskActivity(
+        task_id=task_id,
+        user_id=current_user.id,
+        activity_type=models.ActivityType.COMMENT_ADDED,
+        description="Edited a comment"
+    )
+    db.add(activity)
+    
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+@router.delete("/{task_id}/comments/{comment_id}")
+def delete_comment(
+    task_id: int, 
+    comment_id: int, 
+    db: Session = Depends(database.get_db), 
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    """Delete a comment. Only the comment author can delete their own comments."""
+    db_comment = db.query(models.Comment).filter(
+        models.Comment.id == comment_id,
+        models.Comment.task_id == task_id
+    ).first()
+    
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Check if current user is the comment author
+    if db_comment.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+    
+    # Log activity before deletion
+    activity = models.TaskActivity(
+        task_id=task_id,
+        user_id=current_user.id,
+        activity_type=models.ActivityType.COMMENT_ADDED,
+        description="Deleted a comment"
+    )
+    db.add(activity)
+    
+    # Delete the comment
+    db.delete(db_comment)
+    db.commit()
+    
+    return {"message": "Comment deleted successfully", "comment_id": comment_id}
+
+
 @router.post("/{task_id}/help-request", response_model=schemas.HelpRequest)
 def create_help_request(task_id: int, request: schemas.HelpRequestCreate, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
     db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
@@ -253,7 +427,7 @@ async def upload_evidence(
         
     # Create uploads directory if not exists (Use absolute path relative to project root)
     # Assuming this file is in backend/routers/ and uploads is in project root
-    BASE_DIR = Path(__file__).resolve().parent.parent.parent # routers -> backend -> task_tracker (root)
+    BASE_DIR = Path(__file__).resolve().parent.parent # routers -> backend
     UPLOAD_DIR = BASE_DIR / "uploads"
     
     if not UPLOAD_DIR.exists():

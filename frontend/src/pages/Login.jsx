@@ -46,7 +46,8 @@ const Login = () => {
       } else if (err.response && err.response.status === 401) {
         setError('Invalid username or password');
       } else {
-        setError('An error occurred during login. Please try again.');
+        const detail = err.response?.data?.detail || err.message;
+        setError(`Login failed: ${detail} (Status: ${err.response?.status || 'N/A'})`);
       }
     } finally {
       setLoading(false);

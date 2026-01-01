@@ -5,6 +5,7 @@ import TaskComments from './TaskComments';
 import ActivityTimeline from './ActivityTimeline';
 import EvidenceUpload from './EvidenceUpload';
 import Toast from './Toast';
+import SearchableMultiSelect from './SearchableMultiSelect';
 import { API_BASE_URL } from '../config';
 
 const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers }) => {
@@ -23,6 +24,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
     const [showHelpRequest, setShowHelpRequest] = useState(false);
     const [helpReason, setHelpReason] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+    const [currentEvidenceUrl, setCurrentEvidenceUrl] = useState(null);
 
     useEffect(() => {
         if (task) {
@@ -32,18 +34,56 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                 status: task.status || 'ongoing',
                 criticality: task.criticality || 'medium',
                 progress_percentage: task.progress_percentage || 0,
-                assigned_to: task.assignee_id || null,
+                assigned_to: task.assignees?.map(a => a.id) || (task.assignee_id ? [task.assignee_id] : []),
                 deadline: task.deadline || '',
                 summary_text: ''
             });
+            setCurrentEvidenceUrl(task.evidence_url || null);
         }
     }, [task, isOpen]);
+
+    // Mark task as viewed when modal opens
+    useEffect(() => {
+        const markAsViewed = async () => {
+            if (isOpen && task && task.is_new) {
+                try {
+                    const token = localStorage.getItem('token');
+                    await axios.post(
+                        `${API_BASE_URL}/tasks/${task.id}/mark-viewed`,
+                        {},
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    // Optionally refresh task list to remove NEW badge
+                    if (onUpdate) {
+                        onUpdate();
+                    }
+                } catch (err) {
+                    console.error('Error marking task as viewed:', err);
+                }
+            }
+        };
+        markAsViewed();
+    }, [isOpen, task, onUpdate]);
+
+    // Fetch updated task data after evidence upload
+    const fetchUpdatedTask = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await axios.get(
+                `${API_BASE_URL}/tasks/${task.id}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setCurrentEvidenceUrl(response.data.evidence_url || null);
+        } catch (err) {
+            console.error('Error fetching updated task:', err);
+        }
+    };
 
     if (!isOpen || !task) return null;
 
     // Permission checks
     const isAssigner = user.id === task.assigner_id;
-    const isAssignee = user.id === task.assignee_id;
+    const isAssignee = task.assignees?.some(a => a.id === user.id) || user.id === task.assignee_id;
     // Group Heads can always edit. Otherwise, only the assigner can edit metadata.
     const canEditMetadata = user.role === 'group_head' || isAssigner;
 
@@ -456,24 +496,36 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                             {/* Assigned To */}
                             {canEditMetadata && (
                                 <div className="pb-4 border-b border-border">
-                                    <label className="block text-sm font-medium text-text-muted mb-2">Assigned To</label>
                                     {isEditing ? (
-                                        <select
-                                            value={editedTask.assigned_to || ''}
-                                            onChange={(e) => setEditedTask({ ...editedTask, assigned_to: parseInt(e.target.value) })}
-                                            className="input w-full"
-                                        >
-                                            <option value="">Select team member</option>
-                                            {teamMembers.map(member => (
-                                                <option key={member.id} value={member.id}>
-                                                    {member.username} ({member.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <SearchableMultiSelect
+                                            options={teamMembers}
+                                            value={editedTask.assigned_to}
+                                            onChange={(selectedIds) => setEditedTask({ ...editedTask, assigned_to: selectedIds })}
+                                            label="Assigned To"
+                                            placeholder="Search team members..."
+                                            displayTemplate={(member) => member.username}
+                                            roleTemplate={(member) => member.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                            compact={true}
+                                        />
                                     ) : (
-                                        <div className="flex items-center gap-2">
-                                            <User size={16} className="text-text-muted" />
-                                            <span className="text-text">{task.assignee?.username || 'Unassigned'}</span>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            {task.assignees && task.assignees.length > 0 ? (
+                                                task.assignees.map(assignee => (
+                                                    <div key={assignee.id} className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20">
+                                                        <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
+                                                            {assignee.username.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm text-text font-medium">{assignee.username}</span>
+                                                    </div>
+                                                ))
+                                            ) : task.assignee ? (
+                                                <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20">
+                                                    <User size={16} className="text-primary" />
+                                                    <span className="text-text">{task.assignee.username}</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-text-muted">Unassigned</span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -579,8 +631,9 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, user, teamMembers })
                         <div className="flex flex-col justify-center min-h-[350px] w-full">
                             <EvidenceUpload
                                 taskId={task.id}
-                                currentEvidenceUrl={task.evidence_url}
-                                onUploadComplete={(url) => {
+                                currentEvidenceUrl={currentEvidenceUrl}
+                                onUploadComplete={async (url) => {
+                                    await fetchUpdatedTask();
                                     setToast({ show: true, message: 'Evidence uploaded successfully!', type: 'success' });
                                     onUpdate();
                                 }}

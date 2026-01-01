@@ -1,5 +1,5 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, User, LayoutDashboard, Users, Shield, Settings, Trophy } from 'lucide-react';
+import { LogOut, User, LayoutDashboard, Users, Shield, Settings, Trophy, ClipboardCheck } from 'lucide-react';
 import logo from '../assets/logo.png';
 
 const Navbar = ({ user }) => {
@@ -43,10 +43,16 @@ const Navbar = ({ user }) => {
                     )}
 
                     {user.role === 'group_head' && (
-                        <Link to="/teams" className={linkClass('/teams')}>
-                            <Users size={18} />
-                            Teams
-                        </Link>
+                        <>
+                            <Link to="/teams" className={linkClass('/teams')}>
+                                <Users size={18} />
+                                Teams
+                            </Link>
+                            <Link to="/pending-approvals" className={linkClass('/pending-approvals')}>
+                                <ClipboardCheck size={18} />
+                                Pending Approvals
+                            </Link>
+                        </>
                     )}
                 </div>
             </div>

@@ -8,7 +8,13 @@ router = APIRouter(tags=["auth"])
 
 @router.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), mfa_code: str = Form(None), db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    import traceback
+    try:
+        user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    except Exception as e:
+        print(f"LOGIN ERROR: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -5,7 +5,7 @@ echo ==========================================
 
 :: Start Backend
 echo Starting Backend Server...
-start "SyncDeck Backend" cmd /k "uvicorn backend.main:app --reload"
+start "SyncDeck Backend" cmd /k "set APP_ENV=development && uvicorn backend.main:app --reload"
 
 :: Start Frontend
 echo Starting Frontend Server...

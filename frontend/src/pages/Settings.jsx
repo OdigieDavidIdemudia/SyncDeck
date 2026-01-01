@@ -2,12 +2,17 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import Layout from '../components/Layout';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Toast from '../components/Toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { API_BASE_URL } from '../config';
 
 const Settings = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('profile');
+
+    // Toast State
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
     // MFA State
     const [mfaSecret, setMfaSecret] = useState('');
@@ -116,7 +121,8 @@ const Settings = () => {
             setMfaUri(res.data.uri);
         } catch (err) {
             console.error(err);
-            alert('Failed to setup MFA');
+            const errorMsg = err.response?.data?.detail || 'Failed to setup MFA';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -127,12 +133,13 @@ const Settings = () => {
                 new URLSearchParams({ secret: mfaSecret, code: mfaCode }),
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } }
             );
-            alert('MFA Enabled successfully!');
+            setToast({ show: true, message: 'MFA Enabled successfully!', type: 'success' });
             setMfaSecret('');
             setMfaCode('');
         } catch (err) {
             console.error(err);
-            alert('Invalid Code');
+            const errorMsg = err.response?.data?.detail || 'Invalid Code';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -143,17 +150,19 @@ const Settings = () => {
                 { username: formData.username, email: formData.email },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('Profile updated successfully');
-            window.location.reload();
+            setToast({ show: true, message: 'Profile updated successfully', type: 'success' });
+            // Optional: Reload or update state
+            // window.location.reload(); 
         } catch (err) {
             console.error(err);
-            alert('Failed to update profile');
+            const errorMsg = err.response?.data?.detail || 'Failed to update profile';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
     const handlePasswordChange = async () => {
         if (passwordData.newPassword !== passwordData.confirmNewPassword) {
-            alert("New passwords don't match");
+            setToast({ show: true, message: "New passwords don't match", type: 'error' });
             return;
         }
         const token = localStorage.getItem('token');
@@ -162,11 +171,12 @@ const Settings = () => {
                 { password: passwordData.newPassword },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('Password updated successfully');
+            setToast({ show: true, message: 'Password updated successfully', type: 'success' });
             setPasswordData({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
         } catch (err) {
             console.error(err);
-            alert('Failed to update password');
+            const errorMsg = err.response?.data?.detail || 'Failed to update password';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -177,12 +187,13 @@ const Settings = () => {
                 { ...newUser, team_id: newUser.team_id || null },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('User created successfully');
+            setToast({ show: true, message: 'User created successfully', type: 'success' });
             setNewUser({ username: '', password: '', role: 'member', team_id: '' });
             fetchUsersAndTeams();
         } catch (err) {
             console.error(err);
-            alert('Failed to create user: ' + (err.response?.data?.detail || err.message));
+            const errorMsg = err.response?.data?.detail || err.message;
+            setToast({ show: true, message: 'Failed to create user: ' + errorMsg, type: 'error' });
         }
     };
 
@@ -199,12 +210,13 @@ const Settings = () => {
                 updateData,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('User updated successfully');
+            setToast({ show: true, message: 'User updated successfully', type: 'success' });
             setEditingUser(null);
             fetchUsersAndTeams();
         } catch (err) {
             console.error(err);
-            alert('Failed to update user: ' + (err.response?.data?.detail || err.message));
+            const errorMsg = err.response?.data?.detail || err.message;
+            setToast({ show: true, message: 'Failed to update user: ' + errorMsg, type: 'error' });
         }
     };
 
@@ -215,12 +227,13 @@ const Settings = () => {
             await axios.delete(`${API_BASE_URL}/users/${deletingUser.id}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('User deleted successfully');
+            setToast({ show: true, message: 'User deleted successfully', type: 'success' });
             setDeletingUser(null);
             fetchUsersAndTeams();
         } catch (err) {
             console.error(err);
-            alert('Failed to delete user: ' + (err.response?.data?.detail || err.message));
+            const errorMsg = err.response?.data?.detail || err.message;
+            setToast({ show: true, message: 'Failed to delete user: ' + errorMsg, type: 'error' });
         }
     };
 
@@ -585,31 +598,16 @@ const Settings = () => {
                                 </div>
                             )}
 
-                            {/* Delete Confirmation Modal */}
-                            {deletingUser && (
-                                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-                                    <div className="bg-surface border border-border rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
-                                        <h3 className="text-2xl font-bold text-text mb-4">Delete User</h3>
-                                        <p className="text-text-muted mb-6">
-                                            Are you sure you want to delete user <strong className="text-text">{deletingUser.username}</strong>? This action cannot be undone.
-                                        </p>
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={handleDeleteUser}
-                                                className="flex-1 bg-red-600 text-white px-6 py-2.5 rounded-lg hover:bg-red-700 hover:shadow-lg transition-all font-medium"
-                                            >
-                                                Delete
-                                            </button>
-                                            <button
-                                                onClick={() => setDeletingUser(null)}
-                                                className="flex-1 px-6 py-2.5 border border-border rounded-lg hover:bg-subsurface transition-all font-medium text-text"
-                                            >
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            {/* Delete Confirmation Modal using reusable component */}
+                            <ConfirmationModal
+                                isOpen={!!deletingUser}
+                                onClose={() => setDeletingUser(null)}
+                                onConfirm={handleDeleteUser}
+                                title="Delete User"
+                                message={`Are you sure you want to delete user ${deletingUser?.username}? This action cannot be undone.`}
+                                confirmText="Delete"
+                                isDestructive={true}
+                            />
                         </div>
                     )
                 }
@@ -628,6 +626,7 @@ const Settings = () => {
                     )
                 }
             </div >
+            {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
         </Layout >
     );
 };

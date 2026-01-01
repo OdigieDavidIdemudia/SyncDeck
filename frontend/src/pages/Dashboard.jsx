@@ -10,19 +10,22 @@ import RecentActivity from '../components/RecentActivity';
 import TaskDetailModal from '../components/TaskDetailModal';
 import MemberAchievements from '../components/MemberAchievements';
 import WorkloadIndicator from '../components/WorkloadIndicator';
+import SearchableMultiSelect from '../components/SearchableMultiSelect';
+import Toast from '../components/Toast';
 import { API_BASE_URL } from '../config';
 
 const Dashboard = () => {
     const [tasks, setTasks] = useState([]);
     const [user, setUser] = useState(null);
     const [showCreateTask, setShowCreateTask] = useState(false);
-    const [newTask, setNewTask] = useState({ title: '', description: '', assignee_id: '', criticality: 'medium', status: 'not_started', progress_percentage: 0, is_internal: false, deadline: '' });
+    const [newTask, setNewTask] = useState({ title: '', description: '', assigned_to: [], criticality: 'medium', status: 'not_started', progress_percentage: 0, is_internal: false, deadline: '' });
     const [teamMembers, setTeamMembers] = useState([]);
     const [analyticsData, setAnalyticsData] = useState(null);
     const [selectedTask, setSelectedTask] = useState(null);
     const [showTaskDetail, setShowTaskDetail] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [taskToDelete, setTaskToDelete] = useState(null);
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const navigate = useNavigate();
 
     const fetchData = async () => {
@@ -184,10 +187,11 @@ const Dashboard = () => {
             });
             setShowDeleteConfirm(false);
             setTaskToDelete(null);
+            setToast({ show: true, message: 'Task deleted successfully', type: 'success' });
             fetchData(); // Refresh the task list
         } catch (err) {
             console.error(err);
-            alert(err.response?.data?.detail || 'Failed to delete task');
+            setToast({ show: true, message: err.response?.data?.detail || 'Failed to delete task', type: 'error' });
         }
     };
 
@@ -223,8 +227,19 @@ const Dashboard = () => {
         }
     };
 
+    if (!user) {
+        return <LoadingSpinner />;
+    }
+
     return (
         <Layout user={user}>
+            {toast.show && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast({ ...toast, show: false })}
+                />
+            )}
             {/* Header & Toolbar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
@@ -256,8 +271,7 @@ const Dashboard = () => {
                         </div>
                     </div>
                 </div>
-            )
-            }
+            )}
 
             {/* Member Stats & Workload */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
@@ -283,73 +297,79 @@ const Dashboard = () => {
                             </div>
                             <form onSubmit={async (e) => {
                                 e.preventDefault();
+
+                                // Validation: require at least one assignee
+                                if (!newTask.assigned_to || newTask.assigned_to.length === 0) {
+                                    setToast({ show: true, message: 'Please select at least one assignee', type: 'error' });
+                                    return;
+                                }
+
                                 try {
                                     await axios.post(`${API_BASE_URL}/tasks/`, newTask, {
                                         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                                     });
                                     setShowCreateTask(false);
-                                    setNewTask({ title: '', description: '', assignee_id: '', criticality: 'medium', status: 'not_started', progress_percentage: 0, is_internal: false, deadline: '' });
+                                    setNewTask({ title: '', description: '', assigned_to: [], criticality: 'medium', status: 'not_started', progress_percentage: 0, is_internal: false, deadline: '' });
+                                    setToast({ show: true, message: 'Task created successfully!', type: 'success' });
                                     fetchData();
                                 } catch (err) {
                                     console.error(err);
-                                    alert('Failed to create task');
+                                    setToast({ show: true, message: err.response?.data?.detail || 'Failed to create task', type: 'error' });
                                 }
                             }}>
-                                <div className="p-6 space-y-4">
+                                <div className="p-4 space-y-3">
                                     <div>
                                         <label className="block text-sm font-medium text-text-muted mb-1">Title</label>
-                                        <input type="text" className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" placeholder="Task title" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} required />
+                                        <input type="text" className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" placeholder="Task title" value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} required />
                                     </div>
 
                                     <div>
                                         <label className="block text-sm font-medium text-text-muted mb-1">Description</label>
-                                        <textarea className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[100px]" placeholder="Task description..." value={newTask.description} onChange={e => setNewTask({ ...newTask, description: e.target.value })} />
+                                        <textarea className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] text-sm" placeholder="Task description..." value={newTask.description} onChange={e => setNewTask({ ...newTask, description: e.target.value })} />
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-text-muted mb-1">Assignee</label>
-                                            <select className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={newTask.assignee_id} onChange={e => setNewTask({ ...newTask, assignee_id: e.target.value })} required>
-                                                <option value="">Select Assignee</option>
-                                                {teamMembers.map(m => (
-                                                    <option key={m.id} value={m.id}>{m.username} ({m.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())})</option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                    <SearchableMultiSelect
+                                        options={teamMembers}
+                                        value={newTask.assigned_to}
+                                        onChange={(selectedIds) => setNewTask({ ...newTask, assigned_to: selectedIds })}
+                                        label="Assignees"
+                                        placeholder="Search assignees..."
+                                        displayTemplate={(member) => member.username}
+                                        roleTemplate={(member) => member.role ? member.role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : ''}
+                                        compact={true}
+                                    />
+
+                                    <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-sm font-medium text-text-muted mb-1">Criticality</label>
-                                            <select className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={newTask.criticality} onChange={e => setNewTask({ ...newTask, criticality: e.target.value })}>
+                                            <select className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" value={newTask.criticality} onChange={e => setNewTask({ ...newTask, criticality: e.target.value })}>
                                                 <option value="low">Low</option>
                                                 <option value="medium">Medium</option>
                                                 <option value="high">High</option>
                                             </select>
                                         </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-text-muted mb-1">Deadline</label>
+                                            <input
+                                                type="datetime-local"
+                                                className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm"
+                                                value={newTask.deadline || ''}
+                                                min={new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                                                onChange={e => setNewTask({ ...newTask, deadline: e.target.value })}
+                                            />
+                                        </div>
                                     </div>
-
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-text-muted mb-1">Deadline (Optional)</label>
-                                        <input
-                                            type="datetime-local"
-                                            className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                            value={newTask.deadline || ''}
-                                            min={new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                                            onChange={e => setNewTask({ ...newTask, deadline: e.target.value })}
-                                        />
-                                    </div>
-
-
-
 
                                     {(user.role === 'unit_head' || user.role === 'backup_unit_head') && (
-                                        <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
+                                        <div className="flex items-center gap-2 p-2.5 bg-red-50 rounded-lg border border-red-100">
                                             <input type="checkbox" id="internal" className="w-4 h-4 text-red-600 rounded focus:ring-red-500" checked={newTask.is_internal} onChange={e => setNewTask({ ...newTask, is_internal: e.target.checked })} />
-                                            <label htmlFor="internal" className="text-sm font-medium text-red-700">Internal Task (Hidden from Group Head)</label>
+                                            <label htmlFor="internal" className="text-xs font-medium text-red-700">Internal Task (Hidden from Group Head)</label>
                                         </div>
                                     )}
                                 </div>
 
-                                <div className="p-6 border-t border-border flex justify-end gap-3 bg-subsurface">
+                                <div className="p-4 border-t border-border flex justify-end gap-3 bg-subsurface">
                                     <button type="button" className="px-4 py-2 text-sm font-medium text-text-muted hover:text-text bg-white border border-border rounded-md hover:bg-gray-50 transition-colors" onClick={() => setShowCreateTask(false)}>Cancel</button>
                                     <button type="submit" className="btn-primary text-sm">Create Task</button>
                                 </div>
@@ -402,7 +422,16 @@ const Dashboard = () => {
                             ) : (
                                 tasks.map(task => (
                                     <tr key={task.id} className="hover:bg-subsurface/50 transition-colors group">
-                                        <td className="py-4 px-6 text-sm font-medium text-text group-hover:text-primary transition-colors">{task.title}</td>
+                                        <td className="py-4 px-6 text-sm font-medium text-text group-hover:text-primary transition-colors">
+                                            <div className="flex items-center gap-2">
+                                                {task.title}
+                                                {task.is_new && (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-primary text-white animate-pulse">
+                                                        NEW
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td className="py-4 px-6">
                                             <span
                                                 className={`inline-flex shrink-0 items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(task.status)}`}
@@ -445,10 +474,41 @@ const Dashboard = () => {
                                         </td>
                                         <td className="py-4 px-6">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
-                                                    {task.assignee ? task.assignee.username.charAt(0).toUpperCase() : '?'}
-                                                </div>
-                                                <span className="text-sm text-text">{task.assignee ? task.assignee.username : 'Unassigned'}</span>
+                                                {task.assignees && task.assignees.length > 0 ? (
+                                                    <>
+                                                        <div className="flex -space-x-2">
+                                                            {task.assignees.slice(0, 3).map((assignee, idx) => (
+                                                                <div
+                                                                    key={assignee.id}
+                                                                    className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold border-2 border-white"
+                                                                    title={assignee.username}
+                                                                >
+                                                                    {assignee.username.charAt(0).toUpperCase()}
+                                                                </div>
+                                                            ))}
+                                                            {task.assignees.length > 3 && (
+                                                                <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-bold border-2 border-white">
+                                                                    +{task.assignees.length - 3}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-sm text-text">
+                                                            {task.assignees.length === 1
+                                                                ? task.assignees[0].username
+                                                                : `${task.assignees.length} members`}
+                                                        </span>
+                                                    </>
+                                                ) : task.assignee ? (
+                                                    // Fallback to legacy assignee field
+                                                    <>
+                                                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
+                                                            {task.assignee.username.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm text-text">{task.assignee.username}</span>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-sm text-text-muted">Unassigned</span>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="py-4 px-6 text-sm">

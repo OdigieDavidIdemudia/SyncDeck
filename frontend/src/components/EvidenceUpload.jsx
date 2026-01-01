@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { Upload, FileText, Check, X, ExternalLink } from 'lucide-react';
+import { Upload, FileText, Check, X, ExternalLink, Eye } from 'lucide-react';
 import { API_BASE_URL } from '../config';
+import EvidenceModal from './EvidenceModal';
 
 const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState(null);
+    const [showPreview, setShowPreview] = useState(false);
 
     const handleFileChange = (e) => {
         if (e.target.files[0]) {
@@ -61,29 +63,18 @@ const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
                         </div>
                         <div className="flex-1 overflow-hidden">
                             <p className="text-sm font-medium text-green-800 truncate">Evidence Uploaded</p>
-                            <a
-                                href={`${API_BASE_URL}${currentEvidenceUrl}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-green-600 hover:underline flex items-center gap-1"
+                            <button
+                                onClick={() => setShowPreview(true)}
+                                className="text-xs text-green-600 hover:underline flex items-center gap-1 font-medium"
                             >
-                                Open File <ExternalLink size={10} />
-                            </a>
+                                <Eye size={12} /> View File
+                            </button>
                         </div>
                         <div className="bg-green-200 p-1 rounded-full">
                             <Check size={14} className="text-green-700" />
                         </div>
                     </div>
-                    {/* Inline Image Preview */}
-                    {['.jpg', '.jpeg', '.png', '.gif', '.webp'].some(ext => currentEvidenceUrl.toLowerCase().endsWith(ext)) && (
-                        <div className="mt-2 rounded-lg overflow-hidden border border-green-200">
-                            <img
-                                src={`${API_BASE_URL}${currentEvidenceUrl}`}
-                                alt="Evidence"
-                                className="w-full h-auto object-contain max-h-[300px] bg-white"
-                            />
-                        </div>
-                    )}
+
                 </div>
             )}
 
@@ -136,6 +127,13 @@ const EvidenceUpload = ({ taskId, currentEvidenceUrl, onUploadComplete }) => {
             {error && (
                 <p className="text-sm text-red-500 text-center">{error}</p>
             )}
+
+            <EvidenceModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                fileUrl={currentEvidenceUrl}
+                fileName="Evidence Document"
+            />
         </div>
     );
 };

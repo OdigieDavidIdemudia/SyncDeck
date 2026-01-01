@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import Layout from '../components/Layout';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Toast from '../components/Toast';
 import { API_BASE_URL } from '../config';
 
 const Teams = () => {
@@ -11,6 +13,13 @@ const Teams = () => {
     const [newMemberPassword, setNewMemberPassword] = useState('');
     const [selectedTeamId, setSelectedTeamId] = useState('');
     const [user, setUser] = useState(null);
+
+    // Toast State
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+    // Modal State
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [teamToDelete, setTeamToDelete] = useState(null);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -40,6 +49,10 @@ const Teams = () => {
 
     const handleCreateTeam = async (e) => {
         e.preventDefault();
+        if (!newTeamName.trim()) {
+            setToast({ show: true, message: 'Team name cannot be empty', type: 'error' });
+            return;
+        }
         const token = localStorage.getItem('token');
         try {
             await axios.post(`${API_BASE_URL}/teams/`, { name: newTeamName }, {
@@ -51,8 +64,11 @@ const Teams = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTeams(res.data);
+            setToast({ show: true, message: 'Team created successfully', type: 'success' });
         } catch (err) {
             console.error(err);
+            const errorMsg = err.response?.data?.detail || 'Failed to create team';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -75,9 +91,11 @@ const Teams = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(res.data.filter(u => u.role !== 'group_head'));
+            setToast({ show: true, message: 'Member created successfully', type: 'success' });
         } catch (err) {
             console.error(err);
-            alert('Failed to create member');
+            const errorMsg = err.response?.data?.detail || 'Failed to create member';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -91,9 +109,12 @@ const Teams = () => {
             const res = await axios.get(`${API_BASE_URL}/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setUsers(res.data);
+            setUsers(res.data.filter(u => u.role !== 'group_head'));
+            setToast({ show: true, message: 'User assigned to team', type: 'success' });
         } catch (err) {
             console.error(err);
+            const errorMsg = err.response?.data?.detail || `Failed to assign user: ${err.message}`;
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -108,9 +129,38 @@ const Teams = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(res.data.filter(u => u.role !== 'group_head'));
+            setToast({ show: true, message: 'User promoted successfully', type: 'success' });
         } catch (err) {
             console.error(err);
-            alert('Failed to promote user');
+            const errorMsg = err.response?.data?.detail || 'Failed to promote user';
+            setToast({ show: true, message: errorMsg, type: 'error' });
+        }
+    };
+
+    const handleDeleteTeamClick = (teamId) => {
+        setTeamToDelete(teamId);
+        setDeleteModalOpen(true);
+    };
+
+    const confirmDeleteTeam = async () => {
+        if (!teamToDelete) return;
+        const token = localStorage.getItem('token');
+        try {
+            await axios.delete(`${API_BASE_URL}/teams/${teamToDelete}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            // Refresh teams
+            const res = await axios.get(`${API_BASE_URL}/teams/`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setTeams(res.data);
+            setDeleteModalOpen(false);
+            setTeamToDelete(null);
+            setToast({ show: true, message: 'Team deleted successfully', type: 'success' });
+        } catch (err) {
+            console.error(err);
+            setToast({ show: true, message: 'Failed to delete team', type: 'error' });
+            setDeleteModalOpen(false);
         }
     };
 
@@ -176,8 +226,14 @@ const Teams = () => {
                     <h3 className="text-lg font-semibold text-text mb-4">Teams</h3>
                     <ul className="divide-y divide-border">
                         {teams.map(team => (
-                            <li key={team.id} className="py-3 text-text">
-                                {team.name}
+                            <li key={team.id} className="py-3 flex justify-between items-center text-text">
+                                <span>{team.name}</span>
+                                <button
+                                    onClick={() => handleDeleteTeamClick(team.id)}
+                                    className="text-sm text-red-500 hover:text-red-700 border border-red-200 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                                >
+                                    Delete
+                                </button>
                             </li>
                         ))}
                     </ul>
@@ -188,11 +244,11 @@ const Teams = () => {
                     <ul className="divide-y divide-border">
                         {users.map(u => (
                             <li key={u.id} className="py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                                <span className="text-text font-medium">{u.username} <span className="text-text-muted font-normal text-sm">({u.role})</span></span>
+                                <span className="text-text font-medium">{u.username} <span className="text-text-muted font-normal text-sm">({u.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())})</span></span>
                                 <div className="flex items-center gap-2">
                                     <select
                                         value={u.team_id || ''}
-                                        onChange={(e) => handleAssignUser(u.id, e.target.value)}
+                                        onChange={(e) => handleAssignUser(u.id, e.target.value === "" ? null : parseInt(e.target.value))}
                                         className="px-2 py-1 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                                     >
                                         <option value="">No Team</option>
@@ -214,6 +270,17 @@ const Teams = () => {
                     </ul>
                 </div>
             </div>
+
+            <ConfirmationModal
+                isOpen={deleteModalOpen}
+                onClose={() => setDeleteModalOpen(false)}
+                onConfirm={confirmDeleteTeam}
+                title="Delete Team"
+                message="Are you sure you want to delete this team? This action cannot be undone."
+                confirmText="Delete Team"
+                isDestructive={true}
+            />
+            {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
         </Layout>
     );
 };

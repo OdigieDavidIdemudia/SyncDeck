@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 from typing import List, Optional
 from datetime import datetime
 from .models import UserRole, TaskStatus, TaskCriticality, ActivityType, HelpRequestStatus
@@ -19,6 +19,12 @@ class UserUpdate(BaseModel):
     role: Optional[UserRole] = None
     team_id: Optional[int] = None
 
+    @validator('team_id', pre=True)
+    def blank_string_to_none(cls, v):
+        if v == "":
+            return None
+        return v
+
 class User(UserBase):
     id: int
     role: UserRole
@@ -31,7 +37,13 @@ class User(UserBase):
         orm_mode = True
 
 class TeamBase(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
+
+    @validator('name')
+    def name_must_not_be_blank(cls, v):
+        if not v.strip():
+            raise ValueError('Name cannot be empty or whitespace only')
+        return v.strip()
 
 class TeamCreate(TeamBase):
     pass
@@ -48,6 +60,10 @@ class CommentBase(BaseModel):
 
 class CommentCreate(CommentBase):
     pass
+
+class CommentUpdate(BaseModel):
+    content: str
+
 
 class Comment(CommentBase):
     id: int
@@ -93,6 +109,49 @@ class HelpRequest(HelpRequestBase):
 
     class Config:
         orm_mode = True
+
+class UserDeletionRequestBase(BaseModel):
+    user_id: int
+    reason: Optional[str] = None
+
+class UserDeletionRequestCreate(UserDeletionRequestBase):
+    pass
+
+class UserDeletionRequest(UserDeletionRequestBase):
+    id: int
+    requested_by_id: int
+    status: str
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    reviewed_by_id: Optional[int] = None
+    user: User
+    requested_by: User
+    
+    class Config:
+        orm_mode = True
+
+class PromotionRequestBase(BaseModel):
+    user_id: int
+    target_role: str  # Should be "backup_unit_head"
+    reason: Optional[str] = None
+
+class PromotionRequestCreate(PromotionRequestBase):
+    pass
+
+class PromotionRequest(PromotionRequestBase):
+    id: int
+    requested_by_id: int
+    status: str
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    reviewed_by_id: Optional[int] = None
+    user: User
+    requested_by: User
+    
+    class Config:
+        orm_mode = True
+
+
 
 class MemberAchievementBase(BaseModel):
     on_time_completion_rate: int
@@ -144,7 +203,7 @@ class TaskBase(BaseModel):
     evidence_url: Optional[str] = None
 
 class TaskCreate(TaskBase):
-    assignee_id: Optional[int] = None
+    assigned_to: Optional[List[int]] = None  # List of user IDs to assign task to
 
 class TaskUpdate(TaskBase):
     pass
@@ -153,10 +212,12 @@ class Task(TaskBase):
     id: int
     created_at: datetime
     completed_at: Optional[datetime] = None
-    assignee_id: Optional[int]
+    assignee_id: Optional[int]  # Legacy field, kept for backward compatibility
     assigner_id: int
-    assignee: Optional[User]
+    assignee: Optional[User]  # Legacy field
     assigner: User
+    assignees: List[User] = []  # New multi-assignee field
+    is_new: Optional[bool] = False  # Indicates if task is new for current user
     comments: List[Comment] = []
     activities: List[TaskActivity] = []
     help_requests: List[HelpRequest] = []

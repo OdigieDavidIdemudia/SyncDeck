@@ -53,6 +53,19 @@ class Team(Base):
     
     members = relationship("User", back_populates="team")
 
+class TaskAssignee(Base):
+    """Junction table for many-to-many relationship between tasks and assignees"""
+    __tablename__ = "task_assignees"
+    
+    task_id = Column(Integer, ForeignKey("tasks.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+    viewed_at = Column(DateTime, nullable=True)  # For "new task" indicator
+    
+    # Relationships
+    task = relationship("Task", back_populates="task_assignees")
+    user = relationship("User")
+
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -76,6 +89,8 @@ class Task(Base):
     activities = relationship("TaskActivity", back_populates="task")
     help_requests = relationship("HelpRequest", back_populates="task")
     updates = relationship("TaskUpdate", back_populates="task")
+    task_assignees = relationship("TaskAssignee", back_populates="task", cascade="all, delete-orphan")
+
 
 class TaskUpdate(Base):
     __tablename__ = "task_updates"
@@ -142,6 +157,51 @@ class HelpRequest(Base):
 
     task = relationship("Task", back_populates="help_requests")
     requester = relationship("User")
+
+class DeletionRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class UserDeletionRequest(Base):
+    __tablename__ = "user_deletion_requests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))  # User to be deleted
+    requested_by_id = Column(Integer, ForeignKey("users.id"))  # UNIT_HEAD who requested
+    status = Column(Enum(DeletionRequestStatus), default=DeletionRequestStatus.PENDING)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # GROUP_HEAD who approved/rejected
+    
+    user = relationship("User", foreign_keys=[user_id])
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+class PromotionRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class PromotionRequest(Base):
+    __tablename__ = "promotion_requests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))  # MEMBER to be promoted to BACKUP_UNIT_HEAD
+    requested_by_id = Column(Integer, ForeignKey("users.id"))  # UNIT_HEAD who requested
+    target_role = Column(Enum(UserRole))  # Should be BACKUP_UNIT_HEAD
+    status = Column(Enum(PromotionRequestStatus), default=PromotionRequestStatus.PENDING)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # GROUP_HEAD who approved/rejected
+    
+    user = relationship("User", foreign_keys=[user_id])
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
 
 class MemberAchievement(Base):
     __tablename__ = "member_achievements"

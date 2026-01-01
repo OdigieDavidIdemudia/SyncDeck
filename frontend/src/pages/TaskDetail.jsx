@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import Toast from '../components/Toast';
 import { API_BASE_URL } from '../config';
 
 const TaskDetail = () => {
@@ -10,6 +11,10 @@ const TaskDetail = () => {
     const [comment, setComment] = useState('');
     const [user, setUser] = useState(null);
     const [isEditingStatus, setIsEditingStatus] = useState(false);
+
+    // Toast State
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -83,7 +88,8 @@ const TaskDetail = () => {
             setIsEditingStatus(false);
         } catch (err) {
             console.error(err);
-            alert("Failed to update status");
+            const errorMsg = err.response?.data?.detail || "Failed to update status";
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -187,6 +193,7 @@ const TaskDetail = () => {
                     </form>
                 </div>
             </div>
+            {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
         </Layout>
     );
 };

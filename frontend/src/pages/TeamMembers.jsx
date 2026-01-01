@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import Layout from '../components/Layout';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Toast from '../components/Toast';
 import { API_BASE_URL } from '../config';
 
 const TeamMembers = () => {
@@ -8,6 +10,11 @@ const TeamMembers = () => {
     const [newMemberName, setNewMemberName] = useState('');
     const [newMemberPassword, setNewMemberPassword] = useState('');
     const [user, setUser] = useState(null);
+
+    // Toast & Modal State
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [memberToDelete, setMemberToDelete] = useState(null);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -44,11 +51,11 @@ const TeamMembers = () => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
-            // Unit Head creating a user. Backend handles team assignment automatically for Unit Head.
+            // Unit Head creating a user. Backend automatically assigns team_id.
             await axios.post(`${API_BASE_URL}/users/`, {
                 username: newMemberName,
                 password: newMemberPassword,
-                role: 'member' // Enforced by backend anyway
+                role: 'member'
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -65,23 +72,39 @@ const TeamMembers = () => {
                 u.role === 'member'
             );
             setMembers(myTeam);
+            setToast({ show: true, message: 'Member added successfully', type: 'success' });
         } catch (err) {
             console.error(err);
-            alert('Failed to add member');
+            const errorMsg = err.response?.data?.detail || 'Failed to add member';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
-    const handleDeleteMember = async (userId) => {
-        if (!confirm('Are you sure?')) return;
+    const handleDeleteMemberClick = (userId) => {
+        setMemberToDelete(userId);
+        setDeleteModalOpen(true);
+    };
+
+    const confirmDeleteMember = async () => {
+        if (!memberToDelete) return;
         const token = localStorage.getItem('token');
         try {
-            await axios.delete(`${API_BASE_URL}/users/${userId}`, {
+            // UNIT_HEAD must request deletion, not delete directly
+            await axios.post(`${API_BASE_URL}/users/deletion-requests/`, {
+                user_id: memberToDelete,
+                reason: "Requested by Unit Head" // Could add a reason input field
+            }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setMembers(members.filter(m => m.id !== userId));
+            setToast({ show: true, message: 'Deletion request submitted successfully. Awaiting GROUP_HEAD approval.', type: 'success' });
+            // Note: Member is not immediately removed from list since deletion is pending approval
         } catch (err) {
             console.error(err);
-            alert('Failed to delete member');
+            const errorMsg = err.response?.data?.detail || 'Failed to request deletion';
+            setToast({ show: true, message: errorMsg, type: 'error' });
+        } finally {
+            setDeleteModalOpen(false);
+            setMemberToDelete(null);
         }
     };
 
@@ -91,6 +114,44 @@ const TeamMembers = () => {
         <Layout user={user}>
             <h1 className="text-2xl font-bold text-text mb-8">My Team</h1>
 
+            {/* Add Member Form */}
+            <div className="bg-surface border border-border rounded-xl p-6 shadow-sm max-w-3xl mx-auto mb-6">
+                <h3 className="text-lg font-semibold text-text mb-4">Add New Member</h3>
+                <form onSubmit={handleAddMember} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-text mb-2">Username</label>
+                            <input
+                                type="text"
+                                value={newMemberName}
+                                onChange={(e) => setNewMemberName(e.target.value)}
+                                className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-subsurface"
+                                placeholder="Enter username"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-text mb-2">Password</label>
+                            <input
+                                type="password"
+                                value={newMemberPassword}
+                                onChange={(e) => setNewMemberPassword(e.target.value)}
+                                className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-subsurface"
+                                placeholder="Enter password"
+                                required
+                            />
+                        </div>
+                    </div>
+                    <button
+                        type="submit"
+                        className="btn-primary w-full md:w-auto"
+                    >
+                        Add Member
+                    </button>
+                </form>
+            </div>
+
+            {/* Team Members List */}
             <div className="bg-surface border border-border rounded-xl p-6 shadow-sm max-w-3xl mx-auto">
                 <h3 className="text-lg font-semibold text-text mb-4">Team Members</h3>
                 <ul className="divide-y divide-border">
@@ -103,10 +164,39 @@ const TeamMembers = () => {
                                 </div>
                                 <span className="text-text font-medium">{m.username}</span>
                             </div>
+                            <button
+                                onClick={() => handleDeleteMemberClick(m.id)}
+                                className="text-sm text-red-500 hover:text-red-700 border border-red-200 px-3 py-1.5 rounded hover:bg-red-50 transition-colors font-medium"
+                            >
+                                Request Deletion
+                            </button>
                         </li>
                     ))}
                 </ul>
             </div>
+
+            {/* Deletion Request Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteModalOpen}
+                onClose={() => {
+                    setDeleteModalOpen(false);
+                    setMemberToDelete(null);
+                }}
+                onConfirm={confirmDeleteMember}
+                title="Request Member Deletion"
+                message="This will submit a deletion request to the GROUP_HEAD for approval. The member will not be deleted immediately."
+                confirmText="Submit Request"
+                isDestructive={true}
+            />
+
+            {/* Toast Notifications */}
+            {toast.show && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast({ ...toast, show: false })}
+                />
+            )}
         </Layout>
     );
 };

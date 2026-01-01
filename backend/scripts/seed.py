@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from . import models, schemas, auth, database
+from backend import models, schemas, auth, database
 
 def seed_db():
     models.Base.metadata.create_all(bind=database.engine)

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { Download, FileText } from 'lucide-react';
 import Layout from '../components/Layout';
+import Toast from '../components/Toast';
 import { API_BASE_URL } from '../config';
 
 const Achievements = () => {
@@ -11,6 +12,10 @@ const Achievements = () => {
     const [period, setPeriod] = useState('month');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+
+    // Toast State
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -83,7 +88,8 @@ const Achievements = () => {
             link.remove();
         } catch (err) {
             console.error(err);
-            alert('Export failed');
+            const errorMsg = err.response?.data?.detail || 'Export failed';
+            setToast({ show: true, message: errorMsg, type: 'error' });
         }
     };
 
@@ -226,6 +232,7 @@ const Achievements = () => {
                     </table>
                 </div>
             </div>
+            {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
         </Layout>
     );
 };
